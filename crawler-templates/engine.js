@@ -43,6 +43,15 @@ const CAT = {
 };
 
 const DAYS = 90;
+// 全库共享的 90 天日期数组（只建一次；此前每件饰品每天 new 一个 Date，3 万件 = 280 万次）
+const TODAY_ANCHOR = new Date(2026, 7, 29);
+const DATES = Array.from({ length: DAYS }, (_, i) => {
+  const d = new Date(TODAY_ANCHOR);
+  d.setDate(d.getDate() - (DAYS - 1 - i));
+  return d.toISOString().slice(0, 10);
+});
+// 本地没有的图片按 icon 哈希拼 CDN 地址（data.js 只存哈希，省 ~2MB）
+const CDN_IMG = 'https://community.cloudflare.steamstatic.com/economy/image/';
 // 价格档位越低波动越剧烈
 const volOf = p => p < 50 ? 0.020 : p < 200 ? 0.016 : p < 1000 ? 0.013 : 0.010;
 
@@ -75,12 +84,6 @@ function simWalk(seed, endpoint, len) {
 
 // 生成 90 天价格历史：优先真实快照（≥8 天），前置模拟补齐；不足则整段模拟（终点锚定真实当前价）
 function buildItem(def) {
-  const today = new Date(2026, 7, 29);
-  const dayDate = i => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - (DAYS - 1 - i));
-    return d.toISOString().slice(0, 10);
-  };
   const r2 = p => Math.round(p * 100) / 100;
 
   const real = realHistoryOf(def.name);
@@ -89,13 +92,13 @@ function buildItem(def) {
   if (realLen >= 8) {
     const simLen = DAYS - realLen;
     const simSeries = simLen > 0 ? simWalk(def.id, real[0].price, simLen + 1) : [];
-    const pts = simSeries.slice(0, simLen).map((price, i) => ({ date: dayDate(i), price: r2(price) }));
+    const pts = simSeries.slice(0, simLen).map((price, i) => ({ date: DATES[i], price: r2(price) }));
     priceHistory = pts.concat(real.map(p => ({ date: p.date, price: p.price })));
   } else if (def.hist && def.hist.length >= 2) {
     // 第三方成交窗口锚点（Skinport 24h/7d/30d/90d 中位价，真实成交数据）
     priceHistory = def.hist.map(pr => ({ date: pr[0], price: pr[1] }));
   } else {
-    priceHistory = simWalk(def.id, def.base, DAYS).map((price, i) => ({ date: dayDate(i), price: r2(price) }));
+    priceHistory = simWalk(def.id, def.base, DAYS).map((price, i) => ({ date: DATES[i], price: r2(price) }));
   }
   const historyReal = realLen >= 8 || (def.hist && def.hist.length >= 2) ? true : false;
 
@@ -119,7 +122,7 @@ function buildItem(def) {
   return {
     id: def.id,
     name: def.name,
-    image: def.image,                       // 本地 images/*.png 或 Steam CDN
+    image: def.image || (CDN_IMG + def.icon + '/144fx144'),   // 本地 images/*.png 或按 icon 拼 Steam CDN
     currentPrice, previousPrice, changeAmount, changePercent,
     lowestPrice, highestPrice, priceHistory,
     historyReal,

@@ -670,17 +670,23 @@ function buildWearDB(cache) {
       : CDN + e.icon + '/144fx144';
   }
 
-  // 5. 生成 data.js（RAW 区块 + 磨损价位库 + 真实历史 + 引擎模板）
-  const rawJS = 'const RAW = ' + JSON.stringify(
-    RAW.map(({ id, name, cn, base, rarity, cat, sil, hot, ref, refOnly, hist, chgPrev, image }) =>
-      refOnly ? { id, name, cn, base, rarity, cat, sil, ref, refOnly, hist, chgPrev, image }
-        : ref ? { id, name, cn, base, rarity, cat, sil, hot, ref, image }
-          : (hot ? { id, name, cn, base, rarity, cat, sil, hot, image } : { id, name, cn, base, rarity, cat, sil, image })),
-    null, 1
-  ) + ';';
+  // 5. 生成 data.js（去缩进压缩体积；本地图片存路径、CDN 图片只存 icon 哈希由引擎拼地址）
+  const rawJS = 'const RAW = ' + JSON.stringify(RAW.map(e => {
+    const localImg = e.image && e.image.indexOf('images/') === 0;
+    const it = {
+      id: e.id, name: e.name, cn: e.cn, base: e.base,
+      rarity: e.rarity, cat: e.cat, sil: e.sil,
+      ...(e.hot ? { hot: 1 } : {}),
+      ...(e.ref ? { ref: e.ref } : {}),
+      ...(e.refOnly ? { refOnly: 1 } : {}),
+      ...(e.hist ? { hist: e.hist, chgPrev: e.chgPrev } : {})
+    };
+    if (localImg) it.image = e.image; else it.icon = e.icon;
+    return it;
+  })) + ';';
 
   const wearDB = buildWearDB(cache);
-  const wearJS = 'const WEARDB = ' + JSON.stringify(wearDB, null, 1) + ';';
+  const wearJS = 'const WEARDB = ' + JSON.stringify(wearDB) + ';';
 
   let histJS = 'const HISTORY = null;   // 尚无价格历史\n';
   if (fs.existsSync(HIST_FILE)) {
