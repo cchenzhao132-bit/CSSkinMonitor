@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS 饰品市场监测 · 价格行情雷达</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%AF%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- 顶部栏：Logo + 全局搜索 -->
+<header class="topbar">
+  <div class="container topbar-inner">
+    <div class="logo" id="logoHome" title="回到榜单">
+      <div class="logo-badge">🎯</div>
+      <div class="logo-text">
+        <b>CS 饰品市场监测</b>
+        <span>SKIN PRICE RADAR</span>
+      </div>
+    </div>
+    <div class="search-wrap" id="searchWrap">
+      <button class="topbar-back" id="topBackBtn" title="返回上一页（Alt + ←）" aria-label="返回上一页">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+        <span class="back-badge" id="backBadge"></span>
+      </button>
+      <div class="search-box">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#8a97a8" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <input id="searchInput" type="text" placeholder="搜索全库饰品：输入武器名（如 AK-47）查看各磨损实时涨幅" autocomplete="off" spellcheck="false">
+        <button class="search-clear" id="searchClear" title="清空">✕</button>
+      </div>
+      <div class="search-suggest" id="searchSuggest"></div>
+    </div>
+  </div>
+</header>
+
+<main class="container" id="app">
+  <!-- 由 app.js 渲染：加载骨架 / 榜单页 / 详情页 -->
+</main>
+
+<footer class="footer">
+  当前价与各版本磨损挂牌价来自 Steam 社区市场 · 价格历史为每日真实快照逐步积累（不足 8 天的部分为模拟演示）<br>
+  涨跌周期：较 7 日前 · 红涨绿跌，遵循国内市场习惯 · 更新于 2026-08-29
+</footer>
+
+<script src="echarts.min.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

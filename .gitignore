@@ -1,0 +1,27 @@
+# 构建产物
+build/
+build-*/
+dist/
+dist-*/
+*.spec
+_tmp/
+
+# 爬虫缓存与数据（重跑 crawler.js 即可再生； price-history.json 是你自己的积累数据，按需保留）
+cache/
+
+# 运行时下载的物品图片（约 16MB，可在 issue/发布附说明；仓库保持轻量，运行时走 Steam CDN 兜底）
+app/images/
+
+# 个人会话凭据（绝不入库）
+steam-cookie.txt
+.env
+
+# 系统杂项
+Thumbs.db
+.DS_Store
+__pycache__/
+*.log
+
+# 截图：仅保留 README 引用的一张
+/shot-*.png
+!/shot-v6-real-list.png
