@@ -85,6 +85,12 @@ def _refresh_worker():
         src = os.path.join(home_dir(), 'app', 'data.js')
         if os.path.isfile(src):
             shutil.copyfile(src, os.path.join(base_dir(), 'data.js'))
+            # 关键：同时覆盖渲染窗口实际加载的 app/data.js（frozen 时为 PyInstaller 解包目录），
+            # 否则前端刷新完成后的 location 重载读到的仍是启动时的旧数据，必须重启 exe 才生效
+            try:
+                shutil.copyfile(src, resource_path('app', 'data.js'))
+            except Exception as e:
+                print('reload copy skipped:', e, flush=True)
         _refresh_state['done'] = time.time()
     except Exception as e:
         _refresh_state['error'] = str(e)
