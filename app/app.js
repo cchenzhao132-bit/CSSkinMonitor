@@ -372,7 +372,7 @@
           <div class="change-block">
             ${noChg
               ? '<div class="change-percent" style="background:rgba(255,255,255,0.05);color:var(--text-faint)">快照积累中</div>'
-              : `<div class="change-amount ${up ? 'up-c' : 'down-c'}">${up ? '+' : ''}${fmtSign(item.changeAmount).replace('+', '+¥').replace('-', '-¥')}</div>
+              : `<div class="change-amount ${up ? 'up-c' : 'down-c'}">${fmtSign(item.changeAmount).replace('+', '+¥').replace('-', '-¥')}</div>
             <div class="change-percent ${up ? 'up-c up-bg' : 'down-c down-bg'}">
               <span class="arrow">${up ? '▲' : '▼'}</span>${up ? '+' : ''}${item.changePercent.toFixed(2)}%
             </div>`}
