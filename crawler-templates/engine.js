@@ -123,6 +123,7 @@ function buildItem(def) {
     id: def.id,
     name: def.name,
     image: def.image || (CDN_IMG + def.icon + '/144fx144'),   // 本地 images/*.png 或按 icon 拼 Steam CDN
+    icon: def.icon || null,                 // CDN 兜底用哈希（Akamai 备用源）
     currentPrice, previousPrice, changeAmount, changePercent,
     lowestPrice, highestPrice, priceHistory,
     historyReal,
@@ -181,9 +182,16 @@ function itemImageSVG(item, size) {
 
 ALL_ITEMS.forEach(it => { it.fallback = itemImageSVG(it, 128); });
 
-// 供 <img onerror> 使用：切换到 SVG 兜底图
+// 供 <img onerror> 使用：两级兜底——先试 Akamai 备用源（主 CDN 失败常为网络抖动），再退 SVG 剪影
 window.__imgFallback = function (img, id) {
-  img.onerror = null;
   const item = ALL_ITEMS.find(i => i.id === id);
-  if (item) img.src = item.fallback;
+  if (!item) { img.onerror = null; return; }
+  if (img.dataset.altTry !== '1' && item.icon) {
+    img.dataset.altTry = '1';
+    img.onerror = () => { img.onerror = null; img.src = item.fallback; };
+    img.src = 'https://community.akamai.steamstatic.com/economy/image/' + item.icon + '/144fx144';
+    return;
+  }
+  img.onerror = null;
+  img.src = item.fallback;
 };
