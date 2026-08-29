@@ -409,6 +409,56 @@ function buildWearDB(cache) {
       console.log('第三方目录同步失败（跳过）:', e.message);
     }
 
+    // ---- 可选：Skinport 成交历史回填（--backfill N）----
+    // 用真实成交窗口中位价（24h/7d/30d/90d）为第三方条目构造历史锚点，立刻获得真实涨跌分类
+    // 限流：Skinport 全端点 8 次/5 分钟 → 每批 10 个名称、批间 40s；按参考价从高到低优先
+    const BF_N = getArg('backfill', 0);
+    if (BF_N > 0 && fs.existsSync(CATALOG_FILE)) {
+      try {
+        const catData = JSON.parse(fs.readFileSync(CATALOG_FILE, 'utf8'));
+        const targets = [];
+        for (const [name, c] of Object.entries(catData.items)) {
+          if (cache[name] || c.histAt) continue;                 // Steam 条目走 --history；已回填跳过
+          if (!(c.skinport && c.skinport.min > 0)) continue;
+          targets.push([name, c.skinport.min, c.skinport.qty || 0]);
+        }
+        // 成交活跃度优先：流动性好的物品才有意义的「7 日涨跌」（否则 7 天成交不足 3 次会被门槛跳过）
+        targets.sort((a, b) => (b[2] - a[2]) || (b[1] - a[1]));
+        const list = targets.slice(0, BF_N).map(t => t[0]);
+        console.log(`历史回填：${list.length}/${targets.length} 条待回填（限流 40s/批 × 10 名称）`);
+        const BATCH = 100, BF_DELAY = 40000;   // 每请求 100 个名称（实测上限≥100），40s 间隔守卫 8 次/5 分钟限流
+        let done = 0;
+        for (let i = 0; i < list.length; i += BATCH) {
+          const batch = list.slice(i, i + BATCH);
+          let res = [];
+          try { res = await sources.skinportHistory(batch); } catch (e) { console.log(`  batch fail: ${e.message}`); }
+          if (Array.isArray(res)) {
+            for (const it of res) {
+              const c = catData.items[it.market_hash_name];
+              if (!c || !it.last_7_days || !(it.last_7_days.median > 0) || !(it.last_7_days.volume >= 3)) continue;   // 流动性不足 → 保持无数据
+              const m = it.last_24_hours && it.last_24_hours.median > 0 ? it.last_24_hours.median : it.last_7_days.median;
+              const m7 = it.last_7_days.median, m30 = it.last_30_days && it.last_30_days.median > 0 ? it.last_30_days.median : m7, m90 = it.last_90_days && it.last_90_days.median > 0 ? it.last_90_days.median : m30;
+              const d = n => { const dt = new Date(Date.now() - n * 86400000); return dt.toISOString().slice(0, 10); };
+              const anchors = {};
+              anchors[d(0)] = m, anchors[d(3)] = m7, anchors[d(15)] = m30, anchors[d(45)] = m90;
+              c.hist = {
+                a: Object.entries(anchors).sort((x, y) => (x[0] < y[0] ? -1 : 1)).map(([dd, p]) => [dd, toCNY(p)]),
+                p7: toCNY(m7)
+              };
+              c.histAt = TODAY;
+              done++;
+            }
+          }
+          fs.writeFileSync(CATALOG_FILE, JSON.stringify(catData));
+          process.stdout.write(`  回填进度 ${Math.min(i + BATCH, list.length)}/${list.length}（成功 ${done}）\r`);
+          if (i + BATCH < list.length) await sleep(BF_DELAY);
+        }
+        console.log(`\n历史回填完成：${done} 条获得真实成交历史`);
+      } catch (e) {
+        console.log('历史回填失败（跳过）:', e.message);
+      }
+    }
+
     // ---- 每日价格快照 + 可选历史层（均写入 hist.byName: { name: [[dateISO, priceCNY], ...] }） ----
     let hist = fs.existsSync(HIST_FILE) ? JSON.parse(fs.readFileSync(HIST_FILE, 'utf8')) : { byName: {} };
     hist.byName = hist.byName || {};
@@ -546,6 +596,7 @@ function buildWearDB(cache) {
       sil: silOf(name, cat),
       hot: 0,
       ref,
+      ...(c.hist ? { hist: c.hist.a, chgPrev: c.hist.p7 } : {}),   // 已回填的成交窗口锚点
       refOnly: 1,
       imgKey: md5(name)
     });
@@ -581,8 +632,8 @@ function buildWearDB(cache) {
 
   // 5. 生成 data.js（RAW 区块 + 磨损价位库 + 真实历史 + 引擎模板）
   const rawJS = 'const RAW = ' + JSON.stringify(
-    RAW.map(({ id, name, base, rarity, cat, sil, hot, ref, refOnly, image }) =>
-      refOnly ? { id, name, base, rarity, cat, sil, ref, refOnly, image }
+    RAW.map(({ id, name, base, rarity, cat, sil, hot, ref, refOnly, hist, chgPrev, image }) =>
+      refOnly ? { id, name, base, rarity, cat, sil, ref, refOnly, hist, chgPrev, image }
         : ref ? { id, name, base, rarity, cat, sil, hot, ref, image }
           : (hot ? { id, name, base, rarity, cat, sil, hot, image } : { id, name, base, rarity, cat, sil, image })),
     null, 1

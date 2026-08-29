@@ -91,18 +91,22 @@ function buildItem(def) {
     const simSeries = simLen > 0 ? simWalk(def.id, real[0].price, simLen + 1) : [];
     const pts = simSeries.slice(0, simLen).map((price, i) => ({ date: dayDate(i), price: r2(price) }));
     priceHistory = pts.concat(real.map(p => ({ date: p.date, price: p.price })));
+  } else if (def.hist && def.hist.length >= 2) {
+    // 第三方成交窗口锚点（Skinport 24h/7d/30d/90d 中位价，真实成交数据）
+    priceHistory = def.hist.map(pr => ({ date: pr[0], price: pr[1] }));
   } else {
     priceHistory = simWalk(def.id, def.base, DAYS).map((price, i) => ({ date: dayDate(i), price: r2(price) }));
   }
+  const historyReal = realLen >= 8 || (def.hist && def.hist.length >= 2) ? true : false;
 
   const currentPrice = priceHistory[priceHistory.length - 1].price;
-  const previousPrice = priceHistory[priceHistory.length - 8].price;   // 7 日前
+  // 7 日前价：优先用回填的 7d 窗口中位价；锚点/短序列时防越界
+  const previousPrice = def.chgPrev != null ? def.chgPrev : priceHistory[Math.max(0, priceHistory.length - 8)].price;
   const changeAmount = Math.round((currentPrice - previousPrice) * 100) / 100;
   const changePercent = Math.round((changeAmount / previousPrice) * 10000) / 100;
   const prices = priceHistory.map(p => p.price);
   const lowestPrice = Math.round(Math.min(...prices) * 100) / 100;
   const highestPrice = Math.round(Math.max(...prices) * 100) / 100;
-  const historyReal = realLen >= 8;   // 真实历史是否足以计算真实涨跌
 
   // 涨跌分类：大涨/上涨/盘整/下跌/大跌；refOnly 且历史不足时如实标「无数据」
   const changeClass = (def.refOnly === 1 && !historyReal) ? 'none'

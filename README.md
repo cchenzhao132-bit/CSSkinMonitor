@@ -85,6 +85,16 @@ node crawler.js --regen
 
 若你的 Steam 钱包币种是美元，加 `--hist-usd`（默认按人民币口径入库）。不配置则完全不影响使用，历史靠每日快照自然积累。
 
+**第三方条目免登录回填**：Skinport 公开成交历史（24h/7d/30d/90d 窗口成交中位价）可为第三方条目立即构建真实涨跌：
+
+```
+node crawler.js --pages 0 --backfill 2000   # 按 7 日成交量优先回填（每批 100 名称、限流 40s，2000 条约 13 分钟）
+node crawler.js --regen
+```
+
+- 回填过的条目立即获得**真实**涨跌分类并进入涨跌榜；7 天成交不足 3 次的低流动性物品保持「无数据」（中位数不可信）
+- 回填进度记录在 `cache/catalog.json`（`histAt`），重跑自动续传；全量约 1.9 万条一个晚上（~2 小时）可完成
+
 ## 合规声明
 
 - 遵循 [steamcommunity.com/robots.txt](https://steamcommunity.com/robots.txt)：本项目用到的 `/market/search/render/` 均不在禁止清单内

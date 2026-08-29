@@ -58,6 +58,12 @@ async function waxpeer() {
   return out;
 }
 
+// Skinport 成交历史 —— /v1/sales/history（可逗号批量；返回 24h/7d/30d/90d 窗口成交统计，USD）
+async function skinportHistory(names) {
+  const param = names.map(n => encodeURIComponent(n)).join(',');
+  return getJSON('https://api.skinport.com/v1/sales/history?app_id=730&currency=USD&market_hash_name=' + param);
+}
+
 const SOURCES = { skinport, mcsgo, waxpeer };
 
 // 逐源抓取，单源失败不影响其他源；返回 { 源名: { market_hash_name: {...} } }
@@ -74,4 +80,4 @@ async function fetchAll(log = () => {}) {
   return res;
 }
 
-module.exports = { fetchAll };
+module.exports = { fetchAll, skinportHistory };
