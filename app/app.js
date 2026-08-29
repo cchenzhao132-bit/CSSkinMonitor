@@ -11,6 +11,7 @@
     loading: true,
     query: '',
     cat: 'all',         // 分类筛选（'all' 或 CAT 键）
+    chg: 'all',         // 涨跌分类筛选（'all' 或 up2/up1/flat/down1/down2/none）
     chart: null,
     range: 30,
     history: [],        // 浏览历史栈（用于返回）
@@ -50,6 +51,17 @@
     'sticker', 'graffiti', 'music', 'charm', 'patch', 'agent', 'capsule', 'case', 'misc'];
   const WEAPON_CATS = ['rifle', 'sniper', 'pistol', 'smg', 'shotgun', 'mg', 'knife', 'glove'];
   const COL_LABEL = { w: '普通版', st: 'StatTrak™ 版', sv: '纪念版' };
+  // 涨跌分类（7 日口径；与 engine 的 changeClass 键一致）
+  const CHG_CLASS = [
+    { key: 'up2', name: '大涨', desc: '≥ +10%' },
+    { key: 'up1', name: '上涨', desc: '+3 ~ 10%' },
+    { key: 'flat', name: '盘整', desc: '±3%' },
+    { key: 'down1', name: '下跌', desc: '-3 ~ 10%' },
+    { key: 'down2', name: '大跌', desc: '≤ -10%' },
+    { key: 'none', name: '无数据', desc: '历史快照积累中' }
+  ];
+  const CHG_NAME = {};
+  CHG_CLASS.forEach(c => CHG_NAME[c.key] = c.name);
   // 名称 → { base 皮肤家族, col 版本列 }（与 crawler.js 的 parseVariant 一致）
   function variantOf(name) {
     if (/^Souvenir /.test(name)) return { base: name.slice(9), col: 'sv' };
@@ -195,9 +207,12 @@
     const base = searching
       ? ALL_ITEMS.filter(i => i.name.toLowerCase().includes(effKw)).sort((a, b) => b.currentPrice - a.currentPrice)
       : (tab === 'up' ? RISING : FALLING);
-    const filtered = state.cat === 'all' ? base : base.filter(i => i.cat === state.cat);
+    const catFiltered = state.cat === 'all' ? base : base.filter(i => i.cat === state.cat);
+    const filtered = state.chg === 'all' ? catFiltered : catFiltered.filter(i => i.changeClass === state.chg);
     const catCounts = {};
     base.forEach(i => { catCounts[i.cat] = (catCounts[i.cat] || 0) + 1; });
+    const chgCounts = {};
+    catFiltered.forEach(i => { chgCounts[i.changeClass] = (chgCounts[i.changeClass] || 0) + 1; });
 
     // 市场概览：中位数（均价会被天价刀拉偏）
     const sortedPrices = ALL_ITEMS.map(i => i.currentPrice).sort((a, b) => a - b);
@@ -234,6 +249,11 @@
         ${CAT_KEYS.filter(k => catCounts[k]).map(k => `
           <button class="chip ${state.cat === k ? 'active' : ''}" data-cat="${k}">${CAT[k].name} <b>${catCounts[k]}</b></button>`).join('')}
       </div>
+      <div class="cat-chips chg-chips" id="chgChips">
+        <button class="chip ${state.chg === 'all' ? 'active' : ''}" data-chg="all">全部涨跌 <b>${catFiltered.length}</b></button>
+        ${CHG_CLASS.filter(c => chgCounts[c.key]).map(c => `
+          <button class="chip chg-${c.key} ${state.chg === c.key ? 'active' : ''}" data-chg="${c.key}" title="7日涨跌 ${c.desc}">${c.name} <b>${chgCounts[c.key]}</b></button>`).join('')}
+      </div>
       <div class="rank-meta">
         <span class="hint">${searching
           ? '搜索结果 · 全库 ' + ALL_ITEMS.length + ' 件 · 该系列所有磨损/版本按当前价排序，涨幅为较 7 日前'
@@ -246,6 +266,14 @@
     app.querySelectorAll('#catChips .chip').forEach(btn => {
       btn.addEventListener('click', () => {
         state.cat = btn.dataset.cat;
+        renderList(false);
+      });
+    });
+
+    // 涨跌分类筛选
+    app.querySelectorAll('#chgChips .chip').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.chg = btn.dataset.chg;
         renderList(false);
       });
     });
@@ -318,6 +346,7 @@
 
   function rowHTML(item, idx, kw) {
     const up = item.changePercent > 0;
+    const noChg = item.refOnly && !item.historyReal;   // 第三方参考条目：历史快照不足时不显示涨跌
     const matched = kw && item.name.toLowerCase().includes(kw);
     const badge = idx < 3 ? `top${idx + 1}` : '';
     const nameHtml = kw ? highlight(item.name, kw) : esc(item.name);
@@ -338,13 +367,15 @@
         <div class="item-nums">
           <div class="price-block">
             <div class="price-now">${fmt(item.currentPrice)}</div>
-            <div class="price-prev">7日前 ${fmt(item.previousPrice)}</div>
+            <div class="price-prev">${noChg ? '第三方参考' : `7日前 ${fmt(item.previousPrice)}`}</div>
           </div>
           <div class="change-block">
-            <div class="change-amount ${up ? 'up-c' : 'down-c'}">${up ? '+' : ''}${fmtSign(item.changeAmount).replace('+', '+¥').replace('-', '-¥')}</div>
+            ${noChg
+              ? '<div class="change-percent" style="background:rgba(255,255,255,0.05);color:var(--text-faint)">快照积累中</div>'
+              : `<div class="change-amount ${up ? 'up-c' : 'down-c'}">${up ? '+' : ''}${fmtSign(item.changeAmount).replace('+', '+¥').replace('-', '-¥')}</div>
             <div class="change-percent ${up ? 'up-c up-bg' : 'down-c down-bg'}">
               <span class="arrow">${up ? '▲' : '▼'}</span>${up ? '+' : ''}${item.changePercent.toFixed(2)}%
-            </div>
+            </div>`}
           </div>
         </div>
       </div>`;
@@ -455,6 +486,7 @@
     const item = ALL_ITEMS.find(i => i.id === state.route.id);
     if (!item) { goList('up'); return; }
     const up = item.changePercent > 0;
+    const noChg = item.refOnly && !item.historyReal;
     const his = item.priceHistory;
     const d30 = pctBetween(his, 30);
     const d90 = pctBetween(his, 90);
@@ -477,11 +509,14 @@
               ? '<span class="tag ref-tag">第三方参考价</span>'
               : `<span class="tag rarity" style="--rc:${item.rarityColor}">${item.rarityName}</span>`}
             <span class="tag wear">${wearOf(item.name) || '原版'}</span>
+            ${item.changeClass !== 'none' ? `<span class="tag chg-tag chg-tag-${item.changeClass}">7日${CHG_NAME[item.changeClass]}</span>` : ''}
           </div>
           <div class="detail-quick">
-            7日 <span class="${up ? 'up-c' : 'down-c'}">${up ? '+' : ''}${item.changePercent.toFixed(2)}%</span>
+            ${item.refOnly && !item.historyReal
+              ? '<span style="color:var(--text-faint)">涨跌数据快照积累中（每日自动刷新）</span>'
+              : `7日 <span class="${up ? 'up-c' : 'down-c'}">${up ? '+' : ''}${item.changePercent.toFixed(2)}%</span>
             · 30日 <span class="${d30 > 0 ? 'up-c' : 'down-c'}">${d30 > 0 ? '+' : ''}${d30.toFixed(2)}%</span>
-            · 90日 <span class="${d90 > 0 ? 'up-c' : 'down-c'}">${d90 > 0 ? '+' : ''}${d90.toFixed(2)}%</span>
+            · 90日 <span class="${d90 > 0 ? 'up-c' : 'down-c'}">${d90 > 0 ? '+' : ''}${d90.toFixed(2)}%</span>`}
           </div>
         </div>
       </div>
@@ -523,10 +558,10 @@
       </div>
 
       <div class="detail-stats">
-        <div class="dstat"><div class="ds-label">7日涨跌幅</div><div class="ds-value ${up ? 'up-c' : 'down-c'}">${up ? '+' : ''}${item.changePercent.toFixed(2)}%</div></div>
-        <div class="dstat"><div class="ds-label">30日涨跌幅</div><div class="ds-value ${d30 > 0 ? 'up-c' : 'down-c'}">${d30 > 0 ? '+' : ''}${d30.toFixed(2)}%</div></div>
-        <div class="dstat"><div class="ds-label">历史振幅</div><div class="ds-value">${(((item.highestPrice - item.lowestPrice) / item.lowestPrice) * 100).toFixed(1)}%</div></div>
-        <div class="dstat"><div class="ds-label">90日波动率</div><div class="ds-value">${vola.toFixed(2)}%</div></div>
+        <div class="dstat"><div class="ds-label">7日涨跌幅</div><div class="ds-value ${up ? 'up-c' : 'down-c'}">${noChg ? '—' : (up ? '+' : '') + item.changePercent.toFixed(2) + '%'}</div></div>
+        <div class="dstat"><div class="ds-label">30日涨跌幅</div><div class="ds-value ${d30 > 0 ? 'up-c' : 'down-c'}">${noChg ? '—' : (d30 > 0 ? '+' : '') + d30.toFixed(2) + '%'}</div></div>
+        <div class="dstat"><div class="ds-label">7日分类</div><div class="ds-value" style="font-size:16px">${item.changeClass !== 'none' ? CHG_NAME[item.changeClass] : '—'}</div></div>
+        <div class="dstat"><div class="ds-label">90日波动率</div><div class="ds-value">${noChg ? '—' : vola.toFixed(2) + '%'}</div></div>
       </div>
       ${refCardHTML(item)}`;
 

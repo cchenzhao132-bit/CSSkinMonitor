@@ -286,6 +286,7 @@ function buildWearDB(cache) {
 
   // 已收录条目：只更新价格，不重复下载信息；本次刷新/新增的条目标记 seen（热门池依据）
   const TODAY = new Date().toISOString().slice(0, 10);
+  const toCNY = usd => Math.round(usd * RATE_EXCHANGE * 100) / 100;
   let total = 0, sinceSave = 0, refreshed = 0;
   const addResults = j => {
     total = total || j.total_count;
@@ -471,9 +472,28 @@ function buildWearDB(cache) {
       else row.push([TODAY, cny]);
       hist.byName[name] = row;
     }
-    // 裁剪：移除已不在库的条目；每行最多保留 HIST_MAX_DAYS 个点
+    // refOnly 条目：记录三方最低参考价快照（涨跌逐日变真；同日覆盖）
+    let catItems = {};
+    if (fs.existsSync(CATALOG_FILE)) {
+      try { catItems = JSON.parse(fs.readFileSync(CATALOG_FILE, 'utf8')).items || {}; } catch (e) { catItems = {}; }
+      for (const name in catItems) {
+        if (cache[name]) continue;   // Steam 条目已在上面记录
+        const c = catItems[name];
+        const ps = [];
+        if (c.skinport && c.skinport.min > 0) ps.push(toCNY(c.skinport.min));
+        if (c.mcsgo && c.mcsgo.price > 0) ps.push(toCNY(c.mcsgo.price));
+        if (c.waxpeer && c.waxpeer.min > 0) ps.push(toCNY(c.waxpeer.min));
+        if (!ps.length) continue;
+        const row = hist.byName[name] || [];
+        const v = Math.round(Math.min(...ps) * 100) / 100;
+        if (row.length && row[row.length - 1][0] === TODAY) row[row.length - 1][1] = v;
+        else row.push([TODAY, v]);
+        hist.byName[name] = row;
+      }
+    }
+    // 裁剪：移除既不在 Steam 缓存也不在目录并集的条目；每行最多保留 HIST_MAX_DAYS 个点
     for (const name in hist.byName) {
-      if (!cache[name]) { delete hist.byName[name]; continue; }
+      if (!cache[name] && !catItems[name]) { delete hist.byName[name]; continue; }
       if (hist.byName[name].length > HIST_MAX_DAYS) hist.byName[name] = hist.byName[name].slice(-HIST_MAX_DAYS);
     }
     fs.writeFileSync(HIST_FILE, JSON.stringify(hist));
@@ -488,7 +508,6 @@ function buildWearDB(cache) {
   if (fs.existsSync(CATALOG_FILE)) {
     try { catalogItems = JSON.parse(fs.readFileSync(CATALOG_FILE, 'utf8')).items || {}; } catch (e) {}
   }
-  const toCNY = usd => Math.round(usd * RATE_EXCHANGE * 100) / 100;
   const refOf = c => {
     if (!c) return null;
     const ref = {

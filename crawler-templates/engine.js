@@ -102,6 +102,15 @@ function buildItem(def) {
   const prices = priceHistory.map(p => p.price);
   const lowestPrice = Math.round(Math.min(...prices) * 100) / 100;
   const highestPrice = Math.round(Math.max(...prices) * 100) / 100;
+  const historyReal = realLen >= 8;   // 真实历史是否足以计算真实涨跌
+
+  // 涨跌分类：大涨/上涨/盘整/下跌/大跌；refOnly 且历史不足时如实标「无数据」
+  const changeClass = (def.refOnly === 1 && !historyReal) ? 'none'
+    : changePercent >= 10 ? 'up2'
+      : changePercent >= 3 ? 'up1'
+        : changePercent <= -10 ? 'down2'
+          : changePercent <= -3 ? 'down1'
+            : 'flat';
 
   return {
     id: def.id,
@@ -109,6 +118,8 @@ function buildItem(def) {
     image: def.image,                       // 本地 images/*.png 或 Steam CDN
     currentPrice, previousPrice, changeAmount, changePercent,
     lowestPrice, highestPrice, priceHistory,
+    historyReal,
+    changeClass,
     rarity: def.rarity, rarityName: RARITY[def.rarity].name, rarityColor: RARITY[def.rarity].color,
     cat: def.cat, catName: (CAT[def.cat] || CAT.misc).name,
     hot: def.hot === 1,                     // 热门池标记（最近一次爬取刷新过价格）

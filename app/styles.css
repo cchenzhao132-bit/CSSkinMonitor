@@ -480,3 +480,27 @@ body {
 
 /* 第三方参考价条目标签 */
 .tag.ref-tag { color: #e4ae39; border-color: rgba(228, 174, 57, 0.5); background: rgba(228, 174, 57, 0.08); }
+
+/* ---------------- 涨跌分类 chips 与标签 ---------------- */
+.chg-chips { margin-top: -4px; }
+.chg-chips .chip b { color: var(--text-faint); }
+.chg-chips .chip.chg-up2 { color: #ff8080; }
+.chg-chips .chip.chg-up1 { color: #f0a8a8; }
+.chg-chips .chip.chg-flat { color: var(--text-dim); }
+.chg-chips .chip.chg-down1 { color: #7fd6a4; }
+.chg-chips .chip.chg-down2 { color: #52d68a; }
+.chg-chips .chip.chg-none { color: var(--text-faint); }
+.chg-chips .chip.chg-up2.active { background: var(--up-soft); color: var(--up); border-color: rgba(255, 82, 82, 0.45); }
+.chg-chips .chip.chg-up2.active b { color: var(--up); }
+.chg-chips .chip.chg-up1.active { background: rgba(255, 82, 82, 0.07); color: #ff9090; border-color: rgba(255, 82, 82, 0.3); }
+.chg-chips .chip.chg-up1.active b { color: #ff9090; }
+.chg-chips .chip.chg-flat.active { background: rgba(255, 255, 255, 0.06); color: var(--text); border-color: var(--text-dim); }
+.chg-chips .chip.chg-flat.active b { color: var(--text); }
+.chg-chips .chip.chg-down1.active { background: rgba(46, 204, 113, 0.07); color: #7fd6a4; border-color: rgba(46, 204, 113, 0.3); }
+.chg-chips .chip.chg-down1.active b { color: #7fd6a4; }
+.chg-chips .chip.chg-down2.active { background: var(--down-soft); color: var(--down); border-color: rgba(46, 204, 113, 0.45); }
+.chg-chips .chip.chg-down2.active b { color: var(--down); }
+.tag.chg-tag { font-weight: 600; }
+.tag.chg-tag-up2, .tag.chg-tag-up1 { color: var(--up); border-color: rgba(255, 82, 82, 0.5); background: var(--up-soft); }
+.tag.chg-tag-flat { color: var(--text-dim); border-color: var(--border); background: rgba(255, 255, 255, 0.04); }
+.tag.chg-tag-down1, .tag.chg-tag-down2 { color: var(--down); border-color: rgba(46, 204, 113, 0.5); background: var(--down-soft); }
