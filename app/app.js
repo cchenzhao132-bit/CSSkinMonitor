@@ -32,7 +32,31 @@
   // ---------- 收藏系统（localStorage 持久化；按 market_hash_name 存储，数据刷新不丢收藏） ----------
   const FAV_KEY = 'csskin-favs';
   let FAVS = (() => { try { return JSON.parse(localStorage.getItem(FAV_KEY)) || {}; } catch (e) { return {}; } })();
-  const saveFavs = () => { try { localStorage.setItem(FAV_KEY, JSON.stringify(FAVS)); } catch (e) {} };
+  function saveFavs() {
+    try { localStorage.setItem(FAV_KEY, JSON.stringify(FAVS)); } catch (e) {}
+    // exe 场景：落盘 exe 同目录 favorites.json（localStorage 在 WebView2 的 file:// 下不可靠）
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.save_favorites) {
+      window.pywebview.api.save_favorites(JSON.stringify(FAVS));
+    }
+  }
+  // 桥就绪后用 favorites.json（权威）恢复收藏
+  function initFavsFromBridge() {
+    try {
+      if (!(window.pywebview && window.pywebview.api && window.pywebview.api.load_favorites)) return;
+      window.pywebview.api.load_favorites().then(s => {
+        try {
+          const f = s ? JSON.parse(s) : null;
+          if (f && typeof f === 'object' && Object.keys(f).length) {
+            FAVS = f;
+            try { localStorage.setItem(FAV_KEY, JSON.stringify(FAVS)); } catch (e) {}
+            render();   // 恢复后刷新星标状态
+          }
+        } catch (e) {}
+      }).catch(() => {});
+    } catch (e) {}
+  }
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.load_favorites) initFavsFromBridge();
+  else window.addEventListener('pywebviewready', initFavsFromBridge);
   const isFav = name => !!FAVS[name];
   function toggleFav(name) {
     if (FAVS[name]) delete FAVS[name]; else FAVS[name] = Date.now();

@@ -25,3 +25,4 @@ __pycache__/
 # 截图：仅保留 README 引用的一张
 /shot-*.png
 !/shot-v6-real-list.png
+favorites.json

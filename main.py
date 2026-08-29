@@ -2,6 +2,7 @@
 CS 饰品市场监测 - 桌面应用入口
 使用 pywebview (WebView2) 渲染本地 HTML/JS 前端
 """
+import json
 import os
 import shutil
 import sys
@@ -30,6 +31,38 @@ def apply_external_data():
         print('external data override skipped:', e, flush=True)
 
 
+def base_dir():
+    return os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) \
+        else os.path.dirname(os.path.abspath(__file__))
+
+
+class JsApi:
+    """JS 桥：收藏持久化。WebView2 对 file:// 来源的 localStorage 不可靠，
+    收藏统一落盘 exe 同目录 favorites.json，随用户自由备份。"""
+
+    def fav_path(self):
+        return os.path.join(base_dir(), 'favorites.json')
+
+    def load_favorites(self):
+        try:
+            with open(self.fav_path(), 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception:
+            return ''
+
+    def save_favorites(self, data):
+        try:
+            obj = json.loads(data) if isinstance(data, str) else data
+            if not isinstance(obj, dict):
+                return 'skip'
+            with open(self.fav_path(), 'w', encoding='utf-8') as f:
+                json.dump(obj, f, ensure_ascii=False)
+            return 'ok'
+        except Exception as e:
+            print('save favorites failed:', e, flush=True)
+            return 'error'
+
+
 def main():
     apply_external_data()
     html_path = resource_path('app', 'index.html')
@@ -46,7 +79,8 @@ def main():
         min_size=(760, 600),
         resizable=True,
         background_color='#0e141b',
-        text_select=True
+        text_select=True,
+        js_api=JsApi()
     )
 
     # F12 开启开发者工具（仅 Windows WebView2 生效）
