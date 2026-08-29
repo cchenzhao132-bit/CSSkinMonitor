@@ -96,7 +96,8 @@
     const evalB = b => {
       if (!dp[10][b]) return null;
       const avg = b * STEP / 10, cost = dp[10][b].c, ev = evOfAvg(avg);
-      return { avg, cost, ev, net: ev * (fee ? 0.87 : 1) - cost, recipe: mkRecipe(b) };
+      // 与主面板同口径：卖方所得 = 挂牌价 ÷ (1+费率)（此前硬编码 13%，费率可调时与主面板对不上）
+      return { avg, cost, ev, net: ev / (1 + fee / 100) - cost, recipe: mkRecipe(b) };
     };
     let best = null, worst = null, minF = null, maxF = null;
     const segs = [...bps].sort((a, b) => a - b);

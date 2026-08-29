@@ -62,8 +62,8 @@
       ['Waxpeer 最低', item.ref.wx]
     ].filter(r => r[1] != null);
     if (!rows.length) return '';
-    const steamP = item.refOnly ? 0 : item.currentPrice;   // refOnly 无 Steam 挂牌价，不比差值
-    const sameMarket = r => r[1] > 0 ? (r[1] <= steamP ? 'ref-low' : 'ref-high') : '';
+  const steamP = item.refOnly ? 0 : item.currentPrice;   // refOnly 无 Steam 挂牌价，不比差值
+  const sameMarket = r => steamP > 0 ? (r[1] <= steamP ? 'ref-low' : 'ref-high') : '';
     return `
       <section class="chart-card ref-card">
         <div class="chart-head">
@@ -97,9 +97,10 @@
     const vola = volatility(his);
     const parts = splitName(item.name);
 
+    const backLabel = { up: '涨价', down: '降价', flat: '无变动' }[state.route.tab] || '涨价';
     app.innerHTML = `
       <div class="back-bar">
-        <button class="back-btn" id="backBtn">← 返回${state.route.tab === 'up' ? '涨价' : '降价'}榜</button>
+        <button class="back-btn" id="backBtn">← 返回${backLabel}榜</button>
         <button class="fav-detail-btn ${isFav(item.name) ? 'on' : ''}" id="favDetailBtn" data-name="${esc(item.name)}">${isFav(item.name) ? '★ 已收藏' : '☆ 收藏'}</button>
         <span style="font-size:12px;color:var(--text-faint)">饰品详情 · 每日均价</span>
       </div>
@@ -310,5 +311,9 @@
         });
       });
     }
-    window.addEventListener('resize', () => state.chart && state.chart.resize());
+    // resize 只绑定一次（此前每次 renderChart 都新增一个监听器，长会话无限累积）
+    if (!renderChart._resizeBound) {
+      renderChart._resizeBound = true;
+      window.addEventListener('resize', () => state.chart && state.chart.resize());
+    }
   }

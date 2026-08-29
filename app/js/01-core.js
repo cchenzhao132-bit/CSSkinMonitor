@@ -25,6 +25,8 @@
   const searchSuggest = $('#searchSuggest');
 
   const fmt = n => '¥' + n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // 带符号金额：正 "+¥12.34"、负 "-¥12.34"、零 "¥0.00"
+  const fmtSigned = n => (n > 0 ? '+¥' : n < 0 ? '-¥' : '¥') + Math.abs(n).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtSign = n => (n > 0 ? '+' : '') + n.toFixed(2);
   const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 

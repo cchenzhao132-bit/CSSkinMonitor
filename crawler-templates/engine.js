@@ -44,7 +44,9 @@ const CAT = {
 
 const DAYS = 90;
 // 全库共享的 90 天日期数组（只建一次；此前每件饰品每天 new 一个 Date，3 万件 = 280 万次）
-const TODAY_ANCHOR = new Date(2026, 7, 29);
+// 锚点 = 生成/加载时刻（此前硬编码 2026-08-29，每日重新生成后模拟段日期永久停在当天，
+// 真实快照日期继续前进，图表日期轴出现越来越大的错位）
+const TODAY_ANCHOR = new Date();
 const DATES = Array.from({ length: DAYS }, (_, i) => {
   const d = new Date(TODAY_ANCHOR);
   d.setDate(d.getDate() - (DAYS - 1 - i));

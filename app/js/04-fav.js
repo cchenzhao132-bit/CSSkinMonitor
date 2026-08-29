@@ -35,7 +35,7 @@
       <section class="fav-stats">
         <div class="stat-card"><span class="stat-label">收藏饰品</span><span class="stat-value accent">${items.length}</span></div>
         <div class="stat-card"><span class="stat-label">合计当前价值</span><span class="stat-value">${fmt(totalValue)}</span></div>
-        <div class="stat-card"><span class="stat-label">7日合计涨跌</span><span class="stat-value ${totalChg > 0 ? 'up-c' : totalChg < 0 ? 'down-c' : ''}">${totalChg > 0 ? '+' : ''}${fmt(totalChg)}</span></div>
+        <div class="stat-card"><span class="stat-label">7日合计涨跌</span><span class="stat-value ${totalChg > 0 ? 'up-c' : totalChg < 0 ? 'down-c' : ''}">${fmtSigned(totalChg)}</span></div>
       </section>
       <div class="cat-chips">
         ${[['time', '按收藏时间'], ['price', '按当前价'], ['chg', '按涨跌']].map(([k, n]) => `<button class="chip ${state.favSort === k ? 'active' : ''}" data-sort="${k}">${n}</button>`).join('')}
