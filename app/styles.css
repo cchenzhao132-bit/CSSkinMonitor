@@ -504,3 +504,28 @@ body {
 .tag.chg-tag-up2, .tag.chg-tag-up1 { color: var(--up); border-color: rgba(255, 82, 82, 0.5); background: var(--up-soft); }
 .tag.chg-tag-flat { color: var(--text-dim); border-color: var(--border); background: rgba(255, 255, 255, 0.04); }
 .tag.chg-tag-down1, .tag.chg-tag-down2 { color: var(--down); border-color: rgba(46, 204, 113, 0.5); background: var(--down-soft); }
+
+/* ---------------- 收藏系统 ---------------- */
+.topbar-fav {
+  width: 40px; height: 40px; flex-shrink: 0;
+  border-radius: 10px; border: 1px solid var(--border);
+  background: var(--panel); color: var(--text-dim);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; cursor: pointer; transition: all 0.15s;
+}
+.topbar-fav:hover { color: var(--gold); border-color: rgba(255, 215, 0, 0.5); }
+.topbar-fav.active { color: var(--gold); border-color: rgba(255, 215, 0, 0.55); background: rgba(255, 215, 0, 0.08); }
+.fav-btn {
+  background: none; border: none; color: var(--text-faint); font-size: 17px; line-height: 1;
+  padding: 6px 8px; flex-shrink: 0; cursor: pointer; transition: color .15s ease, transform .15s ease;
+}
+.fav-btn:hover { color: var(--gold); transform: scale(1.18); }
+.fav-btn.on { color: var(--gold); }
+.fav-detail-btn {
+  font-family: var(--font); font-size: 12.5px; color: var(--text-dim); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; padding: 7px 16px; cursor: pointer; transition: all .15s ease;
+}
+.fav-detail-btn:hover { color: var(--gold); border-color: rgba(255, 215, 0, 0.5); }
+.fav-detail-btn.on { color: var(--gold); border-color: rgba(255, 215, 0, 0.55); background: rgba(255, 215, 0, 0.08); }
+.fav-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+@media (max-width: 720px) { .fav-stats { grid-template-columns: 1fr; } }

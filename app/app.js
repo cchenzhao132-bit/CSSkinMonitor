@@ -12,6 +12,7 @@
     query: '',
     cat: 'all',         // 分类筛选（'all' 或 CAT 键）
     chg: 'all',         // 涨跌分类筛选（'all' 或 up2/up1/flat/down1/down2/none）
+    favSort: 'time',    // 收藏页排序：time/price/chg
     chart: null,
     range: 30,
     history: [],        // 浏览历史栈（用于返回）
@@ -27,6 +28,18 @@
   const fmt = n => '¥' + n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtSign = n => (n > 0 ? '+' : '') + n.toFixed(2);
   const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // ---------- 收藏系统（localStorage 持久化；按 market_hash_name 存储，数据刷新不丢收藏） ----------
+  const FAV_KEY = 'csskin-favs';
+  let FAVS = (() => { try { return JSON.parse(localStorage.getItem(FAV_KEY)) || {}; } catch (e) { return {}; } })();
+  const saveFavs = () => { try { localStorage.setItem(FAV_KEY, JSON.stringify(FAVS)); } catch (e) {} };
+  const isFav = name => !!FAVS[name];
+  function toggleFav(name) {
+    if (FAVS[name]) delete FAVS[name]; else FAVS[name] = Date.now();
+    saveFavs();
+    return isFav(name);
+  }
+  const favCount = () => Object.keys(FAVS).length;
 
   // 从名称中拆出磨损
   function wearOf(name) {
@@ -88,6 +101,7 @@
     const h = location.hash.replace(/^#\/?/, '');
     const parts = h.split('/').filter(Boolean);
     if (parts[0] === 'detail' && parts[1]) return { page: 'detail', tab: state.route.tab, id: +parts[1] };
+    if (parts[0] === 'fav') return { page: 'fav', tab: state.route.tab, id: null };
     const tab = parts[0] === 'down' ? 'down' : 'up';
     return { page: 'list', tab, id: null };
   }
@@ -115,6 +129,7 @@
   // ---------- 返回（历史栈回退） ----------
   function routeHash(r) {
     if (r.page === 'detail') return '/detail/' + r.id;
+    if (r.page === 'fav') return '/fav';
     return r.tab === 'down' ? '/down' : '/up';
   }
   function goBack() {
@@ -153,11 +168,21 @@
   });
 
   $('#logoHome').addEventListener('click', () => goList(state.route.tab));
+  $('#favBtn').addEventListener('click', () => {
+    if (state.route.page === 'fav') goList(state.route.tab);   // 再点一次回榜单
+    else nav('/fav');
+  });
 
   // ---------- 渲染入口 ----------
   function render(opt) {
+    const fb = $('#favBtn');
+    if (fb) {
+      fb.textContent = favCount() ? '★' : '☆';
+      fb.classList.toggle('active', state.route.page === 'fav');
+    }
     if (state.loading) { renderSkeleton(); return; }
     if (state.route.page === 'detail') renderDetail();
+    else if (state.route.page === 'fav') renderFavs();
     else renderList(opt && opt.animate);
   }
 
@@ -196,6 +221,76 @@
     '手套': 'gloves', '印花': 'sticker', '布章': 'patch', '探员': 'agent', '音乐盒': 'music kit',
     '涂鸦': 'graffiti', '挂件': 'charm', '武器箱': 'case', '胶囊': 'capsule', '纪念': 'souvenir'
   };
+
+  // ---------- 收藏页 ----------
+  function renderFavs() {
+    const kw = state.query.trim().toLowerCase();
+    const effKw = SEARCH_ALIAS[kw] || kw;
+    let items = Object.keys(FAVS).sort((a, b) => FAVS[b] - FAVS[a])
+      .map(n => ALL_ITEMS.find(i => i.name === n))
+      .filter(Boolean);
+    if (effKw) items = items.filter(i => i.name.toLowerCase().includes(effKw));
+    if (state.cat !== 'all') items = items.filter(i => i.cat === state.cat);
+    const sorters = {
+      time: (a, b) => FAVS[b.name] - FAVS[a.name],
+      price: (a, b) => b.currentPrice - a.currentPrice,
+      chg: (a, b) => b.changePercent - a.changePercent
+    };
+    items.sort(sorters[state.favSort] || sorters.time);
+
+    const totalValue = items.reduce((s, i) => s + i.currentPrice, 0);
+    const chgItems = items.filter(i => !(i.refOnly && !i.historyReal));
+    const totalChg = chgItems.reduce((s, i) => s + i.changeAmount, 0);
+
+    const emptyHtml = favCount() === 0
+      ? '<div class="no-result"><div class="nr-title">☆ 还没有收藏</div><div class="nr-desc">在榜单、搜索结果或详情页点击 ☆ 图标，即可收藏关注的饰品并在这里跟踪价格与涨跌</div></div>'
+      : '<div class="no-result"><div class="nr-title">🔍 没有匹配的收藏</div><div class="nr-desc">换个关键词或分类试试</div></div>';
+
+    app.innerHTML = `
+      <div class="back-bar">
+        <button class="back-btn" id="favBackBtn">← 返回榜单</button>
+        <span style="font-size:12px;color:var(--text-faint)">收藏列表 · 保存在本机，重启不丢</span>
+      </div>
+      <section class="fav-stats">
+        <div class="stat-card"><span class="stat-label">收藏饰品</span><span class="stat-value accent">${items.length}</span></div>
+        <div class="stat-card"><span class="stat-label">合计当前价值</span><span class="stat-value">${fmt(totalValue)}</span></div>
+        <div class="stat-card"><span class="stat-label">7日合计涨跌</span><span class="stat-value ${totalChg > 0 ? 'up-c' : totalChg < 0 ? 'down-c' : ''}">${totalChg > 0 ? '+' : ''}${fmt(totalChg)}</span></div>
+      </section>
+      <div class="cat-chips">
+        ${[['time', '按收藏时间'], ['price', '按当前价'], ['chg', '按涨跌']].map(([k, n]) => `<button class="chip ${state.favSort === k ? 'active' : ''}" data-sort="${k}">${n}</button>`).join('')}
+      </div>
+      <div class="cat-chips" id="catChips">
+        <button class="chip ${state.cat === 'all' ? 'active' : ''}" data-cat="all">全部 <b>${items.length}</b></button>
+        ${CAT_KEYS.filter(k => items.some(i => i.cat === k)).map(k => `
+          <button class="chip ${state.cat === k ? 'active' : ''}" data-cat="${k}">${CAT[k].name} <b>${items.filter(i => i.cat === k).length}</b></button>`).join('')}
+      </div>
+      <div class="item-list list-anim" id="itemList">${items.length ? items.map((i, idx) => rowHTML(i, idx, effKw)).join('') : emptyHtml}</div>`;
+
+    $('#favBackBtn').addEventListener('click', goBack);
+    app.querySelectorAll('[data-sort]').forEach(btn => btn.addEventListener('click', () => { state.favSort = btn.dataset.sort; renderFavs(); }));
+    app.querySelectorAll('#catChips .chip').forEach(btn => btn.addEventListener('click', () => { state.cat = btn.dataset.cat; renderFavs(); }));
+    wireListDelegation();
+  }
+
+  // 事件委托：星标收藏 / 行点击 / 无结果入口点击（榜单、搜索、收藏页共用）
+  function wireListDelegation() {
+    const list = $('#itemList');
+    if (!list) return;
+    list.addEventListener('click', e => {
+      const fb = e.target.closest('.fav-btn');
+      if (fb) {
+        const on = toggleFav(fb.dataset.name);
+        if (state.route.page === 'fav') { renderFavs(); return; }   // 收藏页取消收藏 → 移除该行
+        fb.classList.toggle('on', on);
+        fb.textContent = on ? '★' : '☆';
+        return;
+      }
+      const row = e.target.closest('.item-row');
+      if (row) { goDetail(+row.dataset.id); return; }
+      const entry = e.target.closest('.nr-entry');
+      if (entry) goDetail(+entry.dataset.id);
+    });
+  }
 
   function renderList(animate) {
     const tab = state.route.tab;
@@ -294,16 +389,8 @@
       });
     });
 
-    // 事件委托：行点击 / 无结果入口点击 -> 详情（对追加的行同样生效）
-    const list = $('#itemList');
-    if (list) {
-      list.addEventListener('click', e => {
-        const row = e.target.closest('.item-row');
-        if (row) { goDetail(+row.dataset.id); return; }
-        const entry = e.target.closest('.nr-entry');
-        if (entry) goDetail(+entry.dataset.id);
-      });
-    }
+    // 事件委托：星标收藏 / 行点击 / 无结果入口点击（榜单、搜索、收藏页共用）
+    wireListDelegation();
 
     // 滚动到底自动追加下一批
     setupSentinel();
@@ -377,6 +464,7 @@
               <span class="arrow">${up ? '▲' : '▼'}</span>${up ? '+' : ''}${item.changePercent.toFixed(2)}%
             </div>`}
           </div>
+          <button class="fav-btn ${isFav(item.name) ? 'on' : ''}" data-name="${esc(item.name)}" title="${isFav(item.name) ? '取消收藏' : '收藏'}">${isFav(item.name) ? '★' : '☆'}</button>
         </div>
       </div>`;
   }
@@ -496,6 +584,7 @@
     app.innerHTML = `
       <div class="back-bar">
         <button class="back-btn" id="backBtn">← 返回${state.route.tab === 'up' ? '涨价' : '降价'}榜</button>
+        <button class="fav-detail-btn ${isFav(item.name) ? 'on' : ''}" id="favDetailBtn" data-name="${esc(item.name)}">${isFav(item.name) ? '★ 已收藏' : '☆ 收藏'}</button>
         <span style="font-size:12px;color:var(--text-faint)">饰品详情 · 每日均价</span>
       </div>
 
@@ -566,6 +655,12 @@
       ${refCardHTML(item)}`;
 
     $('#backBtn').addEventListener('click', goBack);
+    const favD = $('#favDetailBtn');
+    if (favD) favD.addEventListener('click', () => {
+      const on = toggleFav(favD.dataset.name);
+      favD.classList.toggle('on', on);
+      favD.textContent = on ? '★ 已收藏' : '☆ 收藏';
+    });
 
     // 磨损价位表：点击有挂牌详情的价格单元格 -> 跳转该版本该磨损条目
     const wearTable = app.querySelector('.wear-table');
@@ -707,11 +802,12 @@
     const v = searchInput.value;
     searchWrap.classList.toggle('has-value', !!v);
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      state.query = v;
-      renderSuggest(v.trim());
-      if (state.route.page === 'list') renderList(false);
-    }, 300);
+      debounceTimer = setTimeout(() => {
+        state.query = v;
+        renderSuggest(v.trim());
+        if (state.route.page === 'fav') renderFavs();
+        else if (state.route.page === 'list') renderList(false);
+      }, 300);
   });
 
   searchInput.addEventListener('focus', () => renderSuggest(searchInput.value.trim()));
@@ -724,7 +820,8 @@
     state.query = '';
     searchWrap.classList.remove('has-value');
     searchSuggest.classList.remove('show');
-    if (state.route.page === 'list') renderList(false);
+    if (state.route.page === 'fav') renderFavs();
+    else if (state.route.page === 'list') renderList(false);
     searchInput.focus();
   });
 
