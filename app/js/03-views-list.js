@@ -25,7 +25,7 @@
     const effKw = SEARCH_ALIAS[kw] || kw;
     const base = searching
       ? ALL_ITEMS.filter(i => i.name.toLowerCase().includes(effKw) || (i.cn || '').toLowerCase().includes(effKw)).sort((a, b) => b.currentPrice - a.currentPrice)
-      : (tab === 'up' ? RISING : FALLING);
+      : tab === 'up' ? RISING : tab === 'down' ? FALLING : FLAT;   // flat = 无变动/积累中
     const catFiltered = state.cat === 'all' ? base : base.filter(i => i.cat === state.cat);
     const filtered = state.chg === 'all' ? catFiltered : catFiltered.filter(i => i.changeClass === state.chg);
     const catCounts = {};
@@ -59,6 +59,9 @@
         <button class="tab-btn ${tab === 'up' ? 'active' : ''}" data-tab="up">
           <span class="tab-arrow">▲</span> 涨价榜 <span class="tab-count">${RISING.length}</span>
         </button>
+        <button class="tab-btn ${tab === 'flat' ? 'active' : ''}" data-tab="flat">
+          <span class="tab-arrow">—</span> 无变动 <span class="tab-count">${FLAT.length}</span>
+        </button>
         <button class="tab-btn ${tab === 'down' ? 'active' : ''}" data-tab="down">
           <span class="tab-arrow">▼</span> 降价榜 <span class="tab-count">${FALLING.length}</span>
         </button>
@@ -76,7 +79,9 @@
       <div class="rank-meta">
         <span class="hint">${searching
           ? '搜索结果 · 全库 ' + ALL_ITEMS.length + ' 件 · 该系列所有磨损/版本按当前价排序，涨幅为较 7 日前'
-          : (tab === 'up' ? '按 7 日涨幅从高到低排序 · 覆盖 Steam 采集条目，第三方条目历史积累后自动入榜' : '按 7 日跌幅从高到低排序 · 覆盖 Steam 采集条目，第三方条目历史积累后自动入榜')}</span>
+          : tab === 'flat'
+          ? '无变动与积累中条目 · 按当前价排序 · 快照满 8 天后按真实涨跌自动分流至涨跌榜'
+          : (tab === 'up' ? '按 7 日涨幅从高到低排序 · 覆盖 Steam 采集条目' : '按 7 日跌幅从高到低排序 · 覆盖 Steam 采集条目')}</span>
         <span class="hint">共 ${filtered.length} 件${searching ? ' · 关键词「' + esc(state.query.trim()) + '」' : ''}${state.cat !== 'all' ? ' · 分类「' + CAT[state.cat].name + '」' : ''}${(!searching && ALL_ITEMS.length - RISING.length - FALLING.length > 0) ? ' · 另有 ' + (ALL_ITEMS.length - RISING.length - FALLING.length) + ' 件涨跌积累中（满 8 天自动入榜）' : ''}</span>
       </div>
       <div class="item-list list-anim" id="itemList">${listHTML}</div>`;

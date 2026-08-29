@@ -145,6 +145,10 @@ const byRise = (a, b) => b.changePercent - a.changePercent;
 const byFall = (a, b) => a.changePercent - b.changePercent;
 const RISING = ALL_ITEMS.filter(i => i.changeClass !== 'none' && i.changePercent > 0.15).sort(byRise);
 const FALLING = ALL_ITEMS.filter(i => i.changeClass !== 'none' && i.changePercent <= -0.15).sort(byFall);
+// 无变动榜 = 涨跌榜的精确补集（盘整 ±0.15% 内 + 涨跌积累中条目），按当前价排序——全库饰品的价格目录
+const _riseSet = new Set(RISING), _fallSet = new Set(FALLING);
+const FLAT = ALL_ITEMS.filter(i => !_riseSet.has(i) && !_fallSet.has(i))
+  .sort((a, b) => b.currentPrice - a.currentPrice);
 const HOT_COUNT = ALL_ITEMS.filter(i => i.hot).length;
 
 // ---------- SVG 剪影兜底图 ----------

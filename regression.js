@@ -21,9 +21,9 @@ let env = {};
 {
   global.window = {};
   const src = fs.readFileSync(path.join(APP, 'data.js'), 'utf8');
-  env = new Function(src + ';return {RAW,WEARDB,HISTORY,TRADEUP,ALL_ITEMS,RISING,FALLING,HOT_COUNT};')();
+  env = new Function(src + ';return {RAW,WEARDB,HISTORY,TRADEUP,ALL_ITEMS,RISING,FALLING,FLAT,HOT_COUNT};')();
 }
-const { RAW, WEARDB, HISTORY, TRADEUP, ALL_ITEMS, RISING, FALLING } = env;
+const { RAW, WEARDB, HISTORY, TRADEUP, ALL_ITEMS, RISING, FALLING, FLAT } = env;
 
 ok(RAW.length >= 30000, `全库条目 ≥ 30000（实际 ${RAW.length}）`);
 ok(TRADEUP && TRADEUP.crates && TRADEUP.crates.length >= 200, `炼金集合 ≥ 200（实际 ${TRADEUP.crates.length}）`);
@@ -44,6 +44,9 @@ ok(RAW.every(i => CAT_KEYS.includes(i.cat)), '全部条目分类键合法');
 // refOnly 且历史未成熟的条目不进涨跌榜；已回填真实历史的第三方条目允许入榜（设计使然）
 ok(RISING.every(i => !(i.refOnly && !i.historyReal)) && FALLING.every(i => !(i.refOnly && !i.historyReal)), '涨跌榜不含无历史的第三方参考条目');
 ok(RISING.length >= 3000 && FALLING.length >= 3000, `涨跌榜规模 ≥ 3000（涨 ${RISING.length} / 跌 ${FALLING.length}）`);
+  ok(FLAT.length >= 20000, `无变动榜 ≥ 20000（实际 ${FLAT.length}）`);
+  ok(RISING.length + FALLING.length + FLAT.length === ALL_ITEMS.length, '三榜覆盖全库（涨+跌+无变动 = 全库）');
+  ok(FLAT.every(i => !RISING.includes(i) && !FALLING.includes(i)), '无变动榜与涨跌榜无重叠（精确补集）');
 
 // 涨跌分类键合法且与涨跌方向自洽
 const CC = ['up2', 'up1', 'flat', 'down1', 'down2', 'none'];
@@ -114,6 +117,7 @@ else {
     ['#', d => /涨价榜/.test(d) && (d.match(/item-row /g) || []).length >= 10 && !/data-tier/.test(d), 30000],
     ['#/up', d => /涨价榜/.test(d) && (d.match(/item-row /g) || []).length >= 10, 30000],
     ['#/down', d => /降价榜/.test(d) && (d.match(/item-row /g) || []).length >= 10, 30000],
+    ['#/flat', d => /无变动/.test(d) && (d.match(/item-row /g) || []).length >= 10, 30000],
     ['#/fav', d => /收藏列表/.test(d) && (/还没有收藏/.test(d) || (d.match(/item-row /g) || []).length >= 1), 2000],
     ['#/alchemy', d => /炼金模拟器/.test(d) && (d.match(/alch-slot /g) || []).length === 10 && /期望产出 EV/.test(d), 30000],
     ['#/detail/1', d => /当前价格|第三方参考价/.test(d) && !/data-tier/.test(d), 5000],

@@ -10,11 +10,11 @@
     if (parts[0] === 'detail' && parts[1]) return { page: 'detail', tab: state.route.tab, id: +parts[1] };
     if (parts[0] === 'fav') return { page: 'fav', tab: state.route.tab, id: null };
     if (parts[0] === 'alchemy') return { page: 'alchemy', tab: state.route.tab, id: null };
-    const tab = parts[0] === 'down' ? 'down' : 'up';
+    const tab = parts[0] === 'down' ? 'down' : parts[0] === 'flat' ? 'flat' : 'up';
     return { page: 'list', tab, id: null };
   }
   function nav(hash) { location.hash = hash; }
-  function goList(tab) { nav(tab === 'down' ? '/down' : '/up'); }
+  function goList(tab) { nav(tab === 'down' ? '/down' : tab === 'flat' ? '/flat' : '/up'); }
   function goDetail(id) { nav('/detail/' + id); }
 
   window.addEventListener('hashchange', () => {
@@ -39,7 +39,7 @@
     if (r.page === 'detail') return '/detail/' + r.id;
     if (r.page === 'fav') return '/fav';
     if (r.page === 'alchemy') return '/alchemy';
-    return r.tab === 'down' ? '/down' : '/up';
+    return r.tab === 'down' ? '/down' : r.tab === 'flat' ? '/flat' : '/up';
   }
   function goBack() {
     while (state.history.length) {
