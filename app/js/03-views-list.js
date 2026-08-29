@@ -124,11 +124,11 @@
     // 滚动到底自动追加下一批
     setupSentinel();
 
-    // 搜索命中：滚动到第一条命中项并高亮
+    // 搜索命中：滚动到第一条命中项并高亮（scrollIntoView 存在性防护：无头/嵌入式环境可能未实现）
     if (kw && filtered.length) {
       const first = app.querySelector('.item-row.row-match');
       if (first) {
-        setTimeout(() => first.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+        setTimeout(() => first.scrollIntoView && first.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
       }
     }
   }

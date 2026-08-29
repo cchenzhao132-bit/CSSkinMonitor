@@ -148,6 +148,67 @@ else {
   }
 }
 
-// ---------- 汇总 ----------
-console.log(`\n===== 回归结果：通过 ${passed} / 失败 ${failed} =====`);
-process.exit(failed ? 1 : 0);
+// ---------- Part 3: 搜索功能端到端（jsdom） ----------
+// 背景：搜索事件绑定曾在模块化拆分时整段丢失，而 Part 1/2 均未覆盖输入交互。
+console.log('\n[3] 搜索功能端到端（jsdom）');
+(async () => {
+  let JSDOM, VirtualConsole;
+  try { ({ JSDOM, VirtualConsole } = require('jsdom')); } catch (e) { JSDOM = null; }
+  if (!JSDOM) { console.log('  ⚠ 未安装 jsdom（npm i -D jsdom），跳过搜索端到端'); return; }
+  // 外链脚本改为手动按序注入内联 <script>（与浏览器一致共享全局词法作用域；
+  // 同时天然阻断 CDN 图片等网络加载）
+  const html = fs.readFileSync(path.join(APP, 'index.html'), 'utf8')
+    .replace(/<script[^>]*\ssrc="[^"]*"[^>]*>\s*<\/script>/g, '');
+  const vc = new VirtualConsole();
+  const jsErrors = [];
+  vc.on('jsdomError', e => jsErrors.push(e.message));
+  const dom = new JSDOM(html, {
+    runScripts: 'dangerously',
+    pretendToBeVisual: true,
+    virtualConsole: vc,
+    url: 'file:///' + APP.replace(/\\/g, '/') + '/index.html?now=1#/up'
+  });
+  const { window } = dom;
+  for (const s of ['echarts.min.js', 'data.js', 'js/01-core.js', 'js/02-router.js', 'js/03-views-list.js',
+    'js/04-fav.js', 'js/05-alchemy.js', 'js/06-detail.js', 'js/07-boot.js']) {
+    const el = window.document.createElement('script');
+    el.textContent = fs.readFileSync(path.join(APP, s), 'utf8');
+    window.document.body.appendChild(el);
+  }
+  await new Promise(r => setTimeout(r, 400));   // 首屏渲染（?now=1 跳过骨架屏）
+  const doc = window.document;
+  const input = doc.querySelector('#searchInput');
+  const suggest = doc.querySelector('#searchSuggest');
+  ok(!!input && !!suggest, '搜索框与建议容器存在');
+  const setKw = async v => {
+    input.value = v;
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 450));   // 300ms 防抖 + 渲染
+  };
+  if (input && suggest) {
+    // 英文关键词：下拉建议 + 搜索态列表
+    await setKw('karambit');
+    ok(suggest.querySelectorAll('.suggest-item').length > 0, '输入英文关键词出现下拉建议');
+    ok(/关键词「karambit」/.test(doc.body.textContent), '列表进入搜索态并显示关键词');
+    ok(doc.querySelectorAll('#itemList .item-row').length > 0, '搜索结果有行');
+    // 中文别名：爪子刀 → gut knife（过滤用映射后关键词，行渲染须同步，否则无高亮无定位）
+    await setKw('爪子刀');
+    ok(suggest.querySelectorAll('.suggest-item').length > 0, '中文别名（爪子刀）出现下拉建议');
+    ok(doc.querySelectorAll('#itemList .item-row.row-match').length > 0, '别名搜索结果带命中高亮（effKw 传参一致）');
+    // 清空按钮
+    doc.querySelector('#searchClear').click();
+    await new Promise(r => setTimeout(r, 150));
+    ok(!suggest.classList.contains('show'), '清空按钮收起建议并退出搜索态');
+    // 无结果提示
+    await setKw('zzzz无此饰品zzzz');
+    ok(/没有找到匹配的饰品/.test(doc.body.textContent), '无结果提示出现');
+    ok(!/更新于 2026-/.test(doc.body.textContent), '页脚无硬编码日期');
+  }
+  const searchErrors = jsErrors.filter(e => !/echarts|canvas/i.test(e));
+  ok(searchErrors.length === 0, '搜索交互无 JS 异常', searchErrors.slice(0, 2).join(' | ').slice(0, 120));
+  window.close();
+})().catch(e => { failed++; console.log('  ✗ 搜索端到端异常:', e.message); }).finally(() => {
+  // ---------- 汇总 ----------
+  console.log(`\n===== 回归结果：通过 ${passed} / 失败 ${failed} =====`);
+  process.exit(failed ? 1 : 0);
+});

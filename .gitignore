@@ -27,3 +27,4 @@ __pycache__/
 !/shot-v6-real-list.png
 favorites.json
 app/data.js
+node_modules/
