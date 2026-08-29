@@ -598,15 +598,17 @@ function buildWearDB(cache) {
     const ref = refOf(c);
     if (!ref) continue;
     const cat = catFromName(name);
+    // 缺失来源用 Infinity 占位，防止 Math.min 被 undefined 拖成 NaN
+    const prices = [ref.sp, ref.mc, ref.wx].filter(v => v != null);
     RAW.push({
       name,
-      base: Math.min(ref.sp, ref.mc, ref.wx),
+      base: Math.round(Math.min(...prices) * 100) / 100,
       rarity: 'common',
       cat,
       sil: silOf(name, cat),
       hot: 0,
       ref,
-      ...(c.hist ? { hist: c.hist.a, chgPrev: c.hist.p7 } : {}),   // 已回填的成交窗口锚点
+      ...(c.hist ? { hist: c.hist.a, chgPrev: c.hist.p7 } : {}),
       refOnly: 1,
       imgKey: md5(name)
     });

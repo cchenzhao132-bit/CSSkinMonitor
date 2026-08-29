@@ -558,3 +558,22 @@ body {
 .alch-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
 .alch-summary .stat-value { font-size: 17px; }
 @media (max-width: 720px) { .alch-summary { grid-template-columns: repeat(2, 1fr); } .alch-skin { flex-basis: 100%; } }
+
+/* 炼金槽手动输入与极值卡 */
+.alch-slot-manual { background: rgba(228, 174, 57, 0.05); border-radius: 8px; padding: 4px 6px; }
+.alch-mname { flex: 1 1 200px; }
+.alch-mprice { width: 92px; font-family: var(--mono); }
+.alch-manual {
+  background: none; border: 1px solid var(--border); color: var(--text-faint);
+  border-radius: 6px; width: 28px; height: 28px; cursor: pointer; flex-shrink: 0; font-size: 13px;
+}
+.alch-manual:hover { color: var(--accent); border-color: var(--accent); }
+.alch-manual.on { color: var(--gold); border-color: rgba(228, 174, 57, 0.6); background: rgba(228, 174, 57, 0.08); }
+.alch-ext-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 4px 12px 10px; }
+.alch-ext { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; }
+.alch-ext-best { border-color: rgba(46, 204, 113, 0.4); }
+.alch-ext-worst { border-color: rgba(255, 82, 82, 0.35); }
+.alch-ext-title { font-size: 12px; color: var(--text-dim); margin-bottom: 4px; font-weight: 600; }
+.alch-ext-num { font-size: 12.5px; margin-bottom: 5px; }
+.alch-ext-recipe { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+@media (max-width: 720px) { .alch-ext-grid { grid-template-columns: 1fr; } }

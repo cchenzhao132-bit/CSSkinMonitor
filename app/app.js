@@ -327,6 +327,94 @@
   const BANDS = [['fn', 0, 0.07], ['mw', 0.07, 0.15], ['ft', 0.15, 0.38], ['ww', 0.38, 0.45], ['bs', 0.45, 1]];
   const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const NEXT_TIER = { mil: 'restr', restr: 'clsfd', clsfd: 'cov', cov: 'gold' };
+  let alchFloats = null;   // enName → [min,max]
+  function alchFloatMap() {
+    if (alchFloats) return alchFloats;
+    const m = {};
+    (typeof TRADEUP !== 'undefined' && TRADEUP && TRADEUP.crates || []).forEach(c => {
+      ['cons', 'ind', 'mil', 'restr', 'clsfd', 'cov'].forEach(k => (c.t[k] || []).forEach(e => { m[e.n] = e.f; }));
+      (c.gold || []).forEach(e => { m[e.n] = e.f; });
+    });
+    alchFloats = m;
+    return m;
+  }
+
+  // 极值公式扫描：DP 求 10 槽在给定平均浮动桶下的最低成本组合
+  function alchOptimize(crate, tier, st, fee) {
+    const pool = crate.t[tier] || [];
+    const variants = [];
+    pool.forEach(p => {
+      BANDS.forEach(b => {
+        if (Math.max(b[1], p.f[0]) < Math.min(b[2], p.f[1])) {
+          const pr = alchPrice(p.n, b[0], st);
+          if (pr) variants.push({ n: p.n, cn: p.cn || p.n, band: b[0], float: clampF(WEAR_MID[b[0]], p.f[0], p.f[1]), price: pr.price });
+        }
+      });
+    });
+    if (!variants.length) return null;
+    const nextKey = NEXT_TIER[tier];
+    const outPool = nextKey === 'gold' ? (crate.gold || []) : (crate.t[nextKey] || []);
+    if (!outPool.length) return null;
+    const evOfAvg = avg => outPool.reduce((s, o) => {
+      const f = o.f[0] + avg * (o.f[1] - o.f[0]);
+      const gloves = /Gloves|Glove/.test(o.n);
+      const pr = alchPrice(o.n, wearBandOf(f), st && !gloves);
+      return s + (pr ? pr.price / outPool.length : 0);
+    }, 0);
+    // DP：dp[k][b] = 前 k 件、浮动和落在桶 b 的最低成本（桶步长 0.05，和上限 10）
+    const STEP = 0.05, NB = 201;
+    const vrb = variants.map(v => ({ ...v, rb: Math.max(1, Math.round(v.float / STEP)) }));
+    const dp = Array.from({ length: 11 }, () => Array(NB).fill(null));
+    dp[0][0] = { c: 0, prev: null };
+    for (let k = 1; k <= 10; k++) {
+      for (let b = 0; b < NB; b++) {
+        let best = null;
+        for (const v of vrb) {
+          const pb = b - v.rb;
+          if (pb < 0 || !dp[k - 1][pb]) continue;
+          const c = dp[k - 1][pb].c + v.price;
+          if (!best || c < best.c) best = { c, prev: { b: pb, v } };
+        }
+        dp[k][b] = best;
+      }
+    }
+    // 平均浮动断点分段（产出磨损跨档处 EV 跳变）
+    const bps = new Set([0.002, 0.998]);
+    for (const o of outPool) for (const bd of [0.07, 0.15, 0.38, 0.45]) {
+      const a = (bd - o.f[0]) / (o.f[1] - o.f[0]);
+      if (a > 0 && a < 1) bps.add(a);
+    }
+    const mkRecipe = b => {
+      const items = [];
+      let cur = b, k = 10;
+      while (k > 0 && dp[k][cur]) {
+        const prev = dp[k][cur].prev;
+        items.push(prev.v);
+        cur = prev.b; k--;
+      }
+      const agg = {};
+      items.forEach(v => { const key = v.n + '|' + v.band; (agg[key] = agg[key] || { cn: v.cn, band: v.band, float: v.float, price: v.price, count: 0 }).count++; });
+      return Object.values(agg);
+    };
+    const evalB = b => {
+      if (!dp[10][b]) return null;
+      const avg = b * STEP / 10, cost = dp[10][b].c, ev = evOfAvg(avg);
+      return { avg, cost, ev, net: ev * (fee ? 0.87 : 1) - cost, recipe: mkRecipe(b) };
+    };
+    let best = null, worst = null, minF = null, maxF = null;
+    const segs = [...bps].sort((a, b) => a - b);
+    for (let i = 0; i < segs.length - 1; i++) {
+      const mid = (segs[i] + segs[i + 1]) / 2;
+      const b = clampF(Math.round(mid * 10 / STEP), 0, 200);
+      const r = evalB(b);
+      if (!r) continue;
+      if (!best || r.net > best.net) best = r;
+      if (!worst || r.net < worst.net) worst = r;
+    }
+    for (let b = 0; b < NB; b++) if (dp[10][b]) { if (minF === null) minF = evalB(b); break; }
+    for (let b = NB - 1; b >= 0; b--) if (dp[10][b]) { if (maxF === null) maxF = evalB(b); break; }
+    return { best, worst, minF, maxF, scanned: variants.length };
+  }
 
   function renderAlchemy() {
     const A = state.alch;
@@ -345,19 +433,21 @@
     const pool = crate.t[tier] || [];
     const firstCovCrate = () => { const i = crates.findIndex(c => (c.t.cov || []).length); return i < 0 ? 0 : i; };
 
-    // 槽位初始化 / 校验
     while (A.slots.length < nSlots) A.slots.push(null);
     A.slots.length = nSlots;
     A.slots.forEach((s, i) => {
-      if (s && s.name && s.float != null) {
+      if (s && s.name && s.float != null && !s.manual) {
         if (is5) { if (crates[s.ci] && (crates[s.ci].t.cov || []).some(p => p.n === s.name)) return; }
         else if (pool.some(p => p.n === s.name)) return;
       }
       const ci = is5 ? ((crates[A.crate].t.cov || []).length ? A.crate : firstCovCrate()) : A.crate;
       const pp = crates[ci].t[tier] || [];
       const p0 = pp[0];
-      A.slots[i] = { ci, name: p0 ? p0.n : '', wear: 'ft', float: p0 ? clampF(WEAR_MID.ft, p0.f[0], p0.f[1]) : 0.25 };
+      A.slots[i] = { ci, name: p0 ? p0.n : '', wear: 'ft', float: p0 ? clampF(WEAR_MID.ft, p0.f[0], p0.f[1]) : 0.25, manual: false, mprice: null };
     });
+    const slotPrice = s => s.manual
+      ? (s.mprice != null ? { price: s.mprice, refOnly: false } : (alchPrice(s.name, s.wear, A.st)))
+      : alchPrice(s.name, s.wear, A.st);
 
     const slotHtml = (s, i) => {
       const sPool = is5 ? (crates[s.ci].t.cov || []) : pool;
@@ -365,24 +455,31 @@
       const f0 = p ? p.f[0] : 0, f1 = p ? p.f[1] : 1;
       const wearOpts = BANDS.filter(b => Math.max(b[1], f0) < Math.min(b[2], f1))
         .map(b => `<option value="${b[0]}" ${s.wear === b[0] ? 'selected' : ''}>${WEAR_ZH[b[0]]}</option>`).join('');
-      const pr = s.name ? alchPrice(s.name, s.wear, A.st) : null;
-      const crateSel = is5 ? `<select class="alch-crate" data-i="${i}">${crates.map((c, ci) => ((c.t.cov || []).length && c.gold) ? `<option value="${ci}" ${s.ci === ci ? 'selected' : ''}>${esc(c.name)}</option>` : '').join('')}</select>` : '';
+      const pr = slotPrice(s);
+      const cnOf = x => { const e = sPool.find(y => y.n === x); return (e && e.cn) || x; };
+      const nameCell = s.manual
+        ? `<input class="alch-mname" data-i="${i}" list="alchDl" value="${esc(s.name)}" placeholder="输入皮肤名（英文）" title="中文名可在下拉中选择；价格请手动填写">`
+        : `<select class="alch-skin" data-i="${i}">${sPool.map(pp => `<option value="${esc(pp.n)}" ${pp.n === s.name ? 'selected' : ''}>${esc(pp.cn || pp.n)}</option>`).join('')}</select>`;
+      const priceCell = s.manual
+        ? `<input class="alch-mprice" data-i="${i}" type="number" step="0.01" min="0" value="${s.mprice != null ? s.mprice : ''}" placeholder="单价 ¥">`
+        : `<span class="alch-slot-price">${pr ? fmt(pr.price) : '—'}</span>`;
+      const crateSel = is5 ? `<select class="alch-crate" data-i="${i}">${crates.map((c, ci) => ((c.t.cov || []).length && c.gold) ? `<option value="${ci}" ${s.ci === ci ? 'selected' : ''}>${esc(c.cn || c.name)}</option>` : '').join('')}</select>` : '';
       return `
-        <div class="alch-slot">
+        <div class="alch-slot ${s.manual ? 'alch-slot-manual' : ''}">
           <span class="alch-idx">${i + 1}</span>
           ${crateSel}
-          <select class="alch-skin" data-i="${i}">${sPool.map(pp => `<option value="${esc(pp.n)}" ${pp.n === s.name ? 'selected' : ''}>${esc(pp.n)}</option>`).join('')}</select>
+          ${nameCell}
           <select class="alch-wear" data-i="${i}">${wearOpts}</select>
           <input class="alch-float" data-i="${i}" type="number" min="${f0}" max="${f1}" step="0.0001" value="${(+s.float).toFixed(4)}" title="输入浮动值">
-          <span class="alch-slot-price">${pr ? fmt(pr.price) : '—'}</span>
+          ${priceCell}
+          <button class="alch-manual ${s.manual ? 'on' : ''}" data-i="${i}" title="切换手动输入（名称+价格）">✎</button>
         </div>`;
     };
 
-    // 计算：平均浮动 → 成本 → 产出行 → EV/ROI
     const avgF = A.slots.reduce((s, x) => s + (+x.float || 0), 0) / (A.slots.length || 1);
     let cost = 0, costUnknown = 0;
     A.slots.forEach(s => {
-      const p = s.name ? alchPrice(s.name, s.wear, A.st) : null;
+      const p = slotPrice(s);
       if (p) cost += p.price; else costUnknown++;
     });
     let outcomes = [];
@@ -392,26 +489,55 @@
       for (const ci in groups) {
         const g = crates[ci].gold || [];
         if (!g.length) continue;
-        const w = groups[ci].length / 5;   // 每张输入给其集合金池 20% 权重
-        g.forEach(o => outcomes.push({ name: o.n, f: o.f, prob: w / g.length }));
+        const w = groups[ci].length / 5;
+        g.forEach(o => outcomes.push({ name: o.n, cn: o.cn, f: o.f, prob: w / g.length }));
       }
     } else {
       const nextKey = NEXT_TIER[tier];
       const outPool = nextKey === 'gold' ? (crate.gold || []) : (crate.t[nextKey] || []);
-      outcomes = outPool.map(o => ({ name: o.n, f: o.f, prob: 1 / outPool.length }));
+      outcomes = outPool.map(o => ({ name: o.n, cn: o.cn, f: o.f, prob: 1 / outPool.length }));
     }
     const rows = outcomes.map(o => {
       const outF = o.f[0] + avgF * (o.f[1] - o.f[0]);
       const w = wearBandOf(outF);
       const gloves = /Gloves|Glove/.test(o.name);
-      const st = A.st && !gloves;   // 手套产出永远无 ST
+      const st = A.st && !gloves;
       const pr = alchPrice(o.name, w, st);
-      return { name: o.name, prob: o.prob, outF, w, pr, stOff: A.st && gloves };
+      return { name: o.name, cn: o.cn || o.name, prob: o.prob, outF, w, pr, stOff: A.st && gloves };
     }).sort((a, b) => b.prob - a.prob || (b.pr ? b.pr.price : 0) - (a.pr ? a.pr.price : 0));
     const priced = rows.filter(r => r.pr);
     const ev = priced.reduce((s, r) => s + r.prob * r.pr.price, 0);
     const net = ev * (A.fee ? 0.87 : 1) - cost;
     const roi = cost > 0 ? net / cost * 100 : 0;
+
+    // 极值公式扫描（仅 10:1；5:1 组合空间不同）
+    let optHtml = '';
+    if (!is5) {
+      const opt = alchOptimize(crate, tier, A.st, A.fee);
+      if (opt) {
+        const card = (title, r, cls) => {
+          if (!r) return '';
+          const recipe = r.recipe.map(x => `${x.count}× ${esc(x.cn)}（${WEAR_ZH[x.band]}）`).join(' + ');
+          return `<div class="alch-ext ${cls || ''}">
+            <div class="alch-ext-title">${title}</div>
+            <div class="alch-ext-num">平均浮动 ${r.avg.toFixed(3)} · 成本 ${fmt(r.cost)} · EV ${fmt(r.ev)} · <b class="${r.net > 0 ? 'up-c' : 'down-c'}">${r.net > 0 ? '+' : ''}${fmt(r.net)}</b></div>
+            <div class="alch-ext-recipe">${recipe}</div>
+          </div>`;
+        };
+        optHtml = `
+          <section class="chart-card">
+            <div class="chart-head"><div class="chart-title"><span class="dot dot-ref"></span>极值公式扫描</div>
+              <span class="wear-hint">在该集合该档位下，穷举 10 槽浮动与皮肤组合的最低成本路径 · 扫描 ${opt.scanned} 个（皮肤×磨损）变体</span></div>
+            <div class="alch-ext-grid">
+              ${card('最赚公式', opt.best, 'alch-ext-best')}
+              ${card('最赔公式', opt.worst, 'alch-ext-worst')}
+              ${card('产出浮动最小', opt.minF)}
+              ${card('产出浮动最大', opt.maxF)}
+            </div>
+            <div class="wear-hint" style="padding:0 12px 10px">产出浮动最小/最大 = 可实现的最低/最高平均输入浮动；最赚/最赔 = 该浮动水平下成本最低配方的净收益。成交不足 3 次的产出不参与。</div>
+          </section>`;
+      }
+    }
 
     app.innerHTML = `
       <div class="back-bar">
@@ -424,7 +550,7 @@
             <button class="chip ${A.mode === '10' ? 'active' : ''}" data-mode="10">10:1 普通升级</button>
             <button class="chip ${A.mode === '5' ? 'active' : ''}" data-mode="5">5:1 刀具/手套</button>
           </div>
-          <select class="alch-crate-main" id="alchCrate">${crates.map((c, ci) => `<option value="${ci}" ${A.crate === ci ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
+          <select class="alch-crate-main" id="alchCrate">${crates.map((c, ci) => `<option value="${ci}" ${A.crate === ci ? 'selected' : ''}>${esc(c.cn || c.name)}</option>`).join('')}</select>
           ${is5 ? '' : `<div class="alch-seg">${['mil', 'restr', 'clsfd', 'cov'].map(t => {
             const ok = (crate.t[t] || []).length && (t !== 'cov' || (crate.gold || []).length);
             return `<button class="chip ${A.tier === t ? 'active' : ''}" data-tier="${t}" ${ok ? '' : 'disabled title="该集合无此档位或金池"'}>${{ mil: '军规→受限', restr: '受限→保密', clsfd: '保密→隐秘', cov: '隐秘→金色' }[t]}</button>`;
@@ -433,9 +559,10 @@
         <div class="alch-row alch-opts">
           <label class="alch-opt"><input type="checkbox" id="alchST" ${A.st ? 'checked' : ''}> StatTrak 模式（须全 ST 输入 → ST 产出；手套除外）</label>
           <label class="alch-opt"><input type="checkbox" id="alchFee" ${A.fee ? 'checked' : ''}> 计入 13% Steam 市场费</label>
-          <span class="wear-hint">产出浮动 = min + 平均输入浮动 × (max − min) · 磨损档默认档位中值，可手动改浮动</span>
+          <span class="wear-hint">产出浮动 = min + 平均输入浮动 × (max − min) · 磨损档默认档位中值，可手动改 · 每槽 ✎ 可手动输入皮肤与单价</span>
         </div>
         <div class="alch-slots" id="alchWrap">${A.slots.map((s, i) => slotHtml(s, i)).join('')}</div>
+        <datalist id="alchDl">${crates.flatMap(c => [...Object.values(c.t).flat(), ...(c.gold || [])]).map(e => `<option value="${esc(e.n)}">${esc(e.cn || e.n)}</option>`).join('')}</datalist>
       </section>
       <section class="alch-summary">
         <div class="stat-card"><span class="stat-label">输入成本（${nSlots} 件${costUnknown ? ` · ${costUnknown} 件无价` : ''}）</span><span class="stat-value">${fmt(cost)}</span></div>
@@ -443,6 +570,7 @@
         <div class="stat-card"><span class="stat-label">期望产出 EV</span><span class="stat-value">${fmt(ev)}</span></div>
         <div class="stat-card"><span class="stat-label">净收益 ${A.fee ? '（含 13% 费）' : ''}</span><span class="stat-value ${net > 0 ? 'up-c' : 'down-c'}">${net > 0 ? '+' : ''}${fmt(net)}（${roi.toFixed(1)}%）</span></div>
       </section>
+      ${optHtml}
       <section class="chart-card">
         <div class="chart-head"><div class="chart-title"><span class="dot"></span>可能产出（共 ${rows.length} 种${priced.length < rows.length ? ` · ${rows.length - priced.length} 种无价格数据，不计入 EV` : ''}）</div></div>
         <table class="wear-table">
@@ -450,7 +578,7 @@
           <tbody>
             ${rows.map(r => `
               <tr>
-                <td class="w-name">${esc(r.name)}${r.stOff ? '<span class="w-en">（手套不适用 ST，按普通版计价）</span>' : ''}</td>
+                <td class="w-name">${esc(r.cn)}<span class="w-en">${esc(r.name)}</span>${r.stOff ? '<span class="w-en">（手套不适用 ST，按普通版计价）</span>' : ''}</td>
                 <td class="mono">${(r.prob * 100).toFixed(1)}%</td>
                 <td class="mono">${r.outF.toFixed(4)}</td>
                 <td>${WEAR_ZH[r.w]}</td>
@@ -474,7 +602,11 @@
       const s = A.slots[i];
       const sPool = is5 ? (crates[s.ci].t.cov || []) : pool;
       const cur = sPool.find(x => x.n === s.name) || sPool[0];
-      if (e.target.classList.contains('alch-crate')) {
+      if (e.target.classList.contains('alch-manual')) {
+        s.manual = !s.manual;
+        if (s.manual && s.mprice == null) { const p = alchPrice(s.name, s.wear, A.st); s.mprice = p ? p.price : null; }
+        renderAlchemy();
+      } else if (e.target.classList.contains('alch-crate')) {
         s.ci = +e.target.value;
         const np = (crates[s.ci].t.cov || [])[0];
         if (np) { s.name = np.n; s.float = clampF(WEAR_MID[s.wear], np.f[0], np.f[1]); }
@@ -483,6 +615,14 @@
         s.name = e.target.value;
         const np = sPool.find(x => x.n === s.name);
         if (np) s.float = clampF(WEAR_MID[s.wear], np.f[0], np.f[1]);
+        renderAlchemy();
+      } else if (e.target.classList.contains('alch-mname')) {
+        s.name = e.target.value.trim();
+        const fm = alchFloatMap()[s.name];
+        if (fm) s.float = clampF(WEAR_MID[s.wear], fm[0], fm[1]);
+        renderAlchemy();
+      } else if (e.target.classList.contains('alch-mprice')) {
+        s.mprice = e.target.value === '' ? null : +e.target.value;
         renderAlchemy();
       } else if (e.target.classList.contains('alch-wear')) {
         s.wear = e.target.value;
