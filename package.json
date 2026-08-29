@@ -10,6 +10,7 @@
     "crawl:collect": "node crawler.js --mode collect",
     "backfill": "node crawler.js --pages 0 --backfill 99999",
     "regen": "node crawler.js --regen",
+    "test": "node regression.js",
     "build": "python -m PyInstaller --onefile --windowed --name CSSkinMonitor --add-data \"app;app\" main.py"
   },
   "engines": {
