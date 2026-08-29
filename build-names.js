@@ -27,7 +27,7 @@ async function getJSON(url) {
 const ENDPOINTS = ['skins', 'stickers', 'agents', 'music_kits', 'patches', 'graffiti', 'crates', 'keys'];
 
 (async () => {
-  const map = {};
+  const map = {}, icons = {};
   let types = 0;
   for (const ep of ENDPOINTS) {
     try {
@@ -35,21 +35,26 @@ const ENDPOINTS = ['skins', 'stickers', 'agents', 'music_kits', 'patches', 'graf
       const zh = await getJSON(CD + `zh-CN/${ep}.json`);
       const zhName = {};
       for (const it of zh) if (it.id && it.name) zhName[it.id] = it.name;
-      let n = 0;
+      let n = 0, ic = 0;
       for (const it of en) {
         const z = zhName[it.id];
         // 优先用市场哈希名做键（与本地数据一致），退化用 name
         const key = it.market_hash_name || it.name;
         if (z && key && !map[key]) { map[key] = z; n++; }
+        // 图标哈希（第三方条目没有 Steam icon，从这里补）
+        if (key && it.image && !icons[key]) {
+          const m = String(it.image).split('/economy/image/')[1];
+          if (m) { icons[key] = m.split('/')[0]; ic++; }
+        }
       }
       types++;
-      console.log(`  ${ep}: ${n} 条中文名`);
+      console.log(`  ${ep}: ${n} 条中文名 / ${ic} 个图标`);
     } catch (e) {
       console.log(`  ${ep} 跳过: ${e.message}`);
     }
     await new Promise(r => setTimeout(r, 800));
   }
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
-  fs.writeFileSync(OUT, JSON.stringify({ updatedAt: new Date().toISOString().slice(0, 10), map }));
-  console.log(`已生成 ${OUT}：${Object.keys(map).length} 条中文名（${types} 类）`);
+  fs.writeFileSync(OUT, JSON.stringify({ updatedAt: new Date().toISOString().slice(0, 10), map, icons }));
+  console.log(`已生成 ${OUT}：${Object.keys(map).length} 条中文名 + ${Object.keys(icons).length} 个图标（${types} 类）`);
 })().catch(e => { console.error('FATAL:', e.message); process.exit(1); });

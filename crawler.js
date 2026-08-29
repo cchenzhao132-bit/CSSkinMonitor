@@ -573,8 +573,10 @@ function buildWearDB(cache) {
   // 2. 转换为 RAW（按价格降序 = 热门优先，id 递增）；seen=今天 的条目进入热门池（hot=1）
   const entries = Object.values(cache).sort((a, b) => b.usd - a.usd);
   // 中文名组合：[StatTrak™/纪念品/★ 前缀] + 中文皮肤名 +（中文磨损）
-  const NAMES = fs.existsSync(NAMES_FILE)
-    ? (JSON.parse(fs.readFileSync(NAMES_FILE, 'utf8')).map || {}) : {};
+  const namesData = fs.existsSync(NAMES_FILE)
+    ? (JSON.parse(fs.readFileSync(NAMES_FILE, 'utf8'))) : {};
+  const NAMES = namesData.map || {};
+  const ICONS = namesData.icons || {};   // 英文名 → icon 哈希（第三方条目补图用）
   const WEAR_ZH_C = { fn: '崭新出厂', mw: '略有磨损', ft: '久经沙场', ww: '破损不堪', bs: '战痕累累' };
   const composeCn = name => {
     const v = parseVariant(name);
@@ -636,6 +638,7 @@ function buildWearDB(cache) {
       sil: silOf(name, cat),
       hot: 0,
       ref,
+      ...(ICONS[name] ? { icon: ICONS[name] } : {}),   // 第三方条目补官方图标
       ...(c.hist ? { hist: c.hist.a, chgPrev: c.hist.p7 } : {}),
       refOnly: 1,
       imgKey: md5(name)
