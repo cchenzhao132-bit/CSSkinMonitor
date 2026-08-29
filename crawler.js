@@ -37,6 +37,7 @@ const CACHE_FILE = path.join(CACHE_DIR, 'crawler-cache.json');
 const HIST_FILE = path.join(CACHE_DIR, 'price-history.json');
 const CATALOG_FILE = path.join(CACHE_DIR, 'catalog.json');
 const TRADEUP_FILE = path.join(CACHE_DIR, 'tradeup.json');
+const NAMES_FILE = path.join(CACHE_DIR, 'names.json');
 const DATA_JS = path.join(APP, 'data.js');
 const IMG_DIR = path.join(APP, 'images');
 
@@ -571,6 +572,23 @@ function buildWearDB(cache) {
 
   // 2. 转换为 RAW（按价格降序 = 热门优先，id 递增）；seen=今天 的条目进入热门池（hot=1）
   const entries = Object.values(cache).sort((a, b) => b.usd - a.usd);
+  // 中文名组合：[StatTrak™/纪念品/★ 前缀] + 中文皮肤名 +（中文磨损）
+  const NAMES = fs.existsSync(NAMES_FILE)
+    ? (JSON.parse(fs.readFileSync(NAMES_FILE, 'utf8')).map || {}) : {};
+  const WEAR_ZH_C = { fn: '崭新出厂', mw: '略有磨损', ft: '久经沙场', ww: '破损不堪', bs: '战痕累累' };
+  const composeCn = name => {
+    const v = parseVariant(name);
+    const m = v.base.match(WEAR_RE);
+    const base = m ? v.base.slice(0, m.index) : v.base;
+    const zhBase = NAMES[base] || NAMES[v.base] || NAMES[name];
+    if (!zhBase) return name;
+    const star = base.indexOf('★ ') === 0;
+    const pre = star ? (v.col === 'st' ? '★ StatTrak™ ' : '★ ')
+      : (v.col === 'st' ? 'StatTrak™ ' : v.col === 'sv' ? '纪念品 ' : '');
+    const zhBase2 = star && zhBase.indexOf('★ ') === 0 ? zhBase.slice(2) : zhBase;
+    const wear = m ? '（' + WEAR_ZH_C[WEAR_KEY[m[1]]] + '）' : '';
+    return pre + zhBase2 + wear;
+  };
   // 第三方参考价附着（目录在磁盘上则 regen 也可用；CNY 换算，字段 sp/mc/wx 分别为 Skinport/market.csgo/Waxpeer）
   let catalogItems = {};
   if (fs.existsSync(CATALOG_FILE)) {
@@ -588,6 +606,7 @@ function buildWearDB(cache) {
   const RAW = entries.map((e, i) => ({
     id: i + 1,
     name: e.name,
+    cn: composeCn(e.name),                                 // 中文名（组合前缀/皮肤/磨损）
     base: Math.round(e.usd * RATE_EXCHANGE * 100) / 100,   // 真实当前价（CNY）
     rarity: (e.quality || qualityOf(e.type).key),
     cat: e.cat || catOf(e.type, e.name),                   // 武器/收藏品分类
@@ -610,6 +629,7 @@ function buildWearDB(cache) {
     const prices = [ref.sp, ref.mc, ref.wx].filter(v => v != null);
     RAW.push({
       name,
+      cn: composeCn(name),
       base: Math.round(Math.min(...prices) * 100) / 100,
       rarity: 'common',
       cat,
@@ -652,10 +672,10 @@ function buildWearDB(cache) {
 
   // 5. 生成 data.js（RAW 区块 + 磨损价位库 + 真实历史 + 引擎模板）
   const rawJS = 'const RAW = ' + JSON.stringify(
-    RAW.map(({ id, name, base, rarity, cat, sil, hot, ref, refOnly, hist, chgPrev, image }) =>
-      refOnly ? { id, name, base, rarity, cat, sil, ref, refOnly, hist, chgPrev, image }
-        : ref ? { id, name, base, rarity, cat, sil, hot, ref, image }
-          : (hot ? { id, name, base, rarity, cat, sil, hot, image } : { id, name, base, rarity, cat, sil, image })),
+    RAW.map(({ id, name, cn, base, rarity, cat, sil, hot, ref, refOnly, hist, chgPrev, image }) =>
+      refOnly ? { id, name, cn, base, rarity, cat, sil, ref, refOnly, hist, chgPrev, image }
+        : ref ? { id, name, cn, base, rarity, cat, sil, hot, ref, image }
+          : (hot ? { id, name, cn, base, rarity, cat, sil, hot, image } : { id, name, cn, base, rarity, cat, sil, image })),
     null, 1
   ) + ';';
 

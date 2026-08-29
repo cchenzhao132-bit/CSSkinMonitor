@@ -579,3 +579,6 @@ body {
 @media (max-width: 720px) { .alch-ext-grid { grid-template-columns: 1fr; } }
 
 .topbar-fav.spinning { animation: spin 1s linear infinite; color: var(--accent); border-color: var(--accent); }
+
+/* 详情标题英文副行 */
+.detail-title-en { font-size: 12px; color: var(--text-faint); font-family: var(--mono); margin-top: 3px; }

@@ -356,7 +356,7 @@
     let items = Object.keys(FAVS).sort((a, b) => FAVS[b] - FAVS[a])
       .map(n => ALL_ITEMS.find(i => i.name === n))
       .filter(Boolean);
-    if (effKw) items = items.filter(i => i.name.toLowerCase().includes(effKw));
+    if (effKw) items = items.filter(i => i.name.toLowerCase().includes(effKw) || (i.cn || '').toLowerCase().includes(effKw));
     if (state.cat !== 'all') items = items.filter(i => i.cat === state.cat);
     const sorters = {
       time: (a, b) => FAVS[b.name] - FAVS[a.name],
@@ -759,7 +759,7 @@
     // 无搜索：涨价榜/降价榜（热门池，各取涨幅居前的前 100 量级）
     const effKw = SEARCH_ALIAS[kw] || kw;
     const base = searching
-      ? ALL_ITEMS.filter(i => i.name.toLowerCase().includes(effKw)).sort((a, b) => b.currentPrice - a.currentPrice)
+      ? ALL_ITEMS.filter(i => i.name.toLowerCase().includes(effKw) || (i.cn || '').toLowerCase().includes(effKw)).sort((a, b) => b.currentPrice - a.currentPrice)
       : (tab === 'up' ? RISING : FALLING);
     const catFiltered = state.cat === 'all' ? base : base.filter(i => i.cat === state.cat);
     const filtered = state.chg === 'all' ? catFiltered : catFiltered.filter(i => i.changeClass === state.chg);
@@ -893,15 +893,19 @@
   function rowHTML(item, idx, kw) {
     const up = item.changePercent > 0;
     const noChg = item.refOnly && !item.historyReal;   // 第三方参考条目：历史快照不足时不显示涨跌
-    const matched = kw && item.name.toLowerCase().includes(kw);
+    const matched = kw && (item.name.toLowerCase().includes(kw) || (item.cn || '').toLowerCase().includes(kw));
     const badge = idx < 3 ? `top${idx + 1}` : '';
-    const nameHtml = kw ? highlight(item.name, kw) : esc(item.name);
+    const disp = item.cn || item.name;
+    let nameHtml;
+    if (kw && disp.toLowerCase().includes(kw)) nameHtml = highlight(disp, kw);
+    else if (kw && item.name.toLowerCase().includes(kw)) nameHtml = highlight(item.name, kw);
+    else nameHtml = esc(disp);
     return `
       <div class="item-row ${up ? 'row-up' : 'row-down'} ${matched ? 'row-match' : ''}" data-id="${item.id}">
         <div class="rank-badge ${badge}">${idx + 1}</div>
-        <img class="item-img" src="${item.image}" alt="${esc(item.name)}" loading="lazy" referrerpolicy="no-referrer" onerror="__imgFallback(this, ${item.id})">
+        <img class="item-img" src="${item.image}" alt="${esc(disp)}" loading="lazy" referrerpolicy="no-referrer" onerror="__imgFallback(this, ${item.id})">
         <div class="item-info">
-          <div class="item-name">${nameHtml}</div>
+          <div class="item-name" title="${esc(item.name)}">${nameHtml}</div>
           <div class="item-tags">
             <span class="tag cat">${item.catName}</span>
             ${item.refOnly
@@ -1050,7 +1054,8 @@
       <div class="detail-head">
         <img class="detail-img" src="${item.image}" alt="${esc(item.name)}" referrerpolicy="no-referrer" onerror="__imgFallback(this, ${item.id})">
         <div class="detail-title">
-          <h2>${esc(parts.weapon)} <span style="color:${item.rarityColor}">| ${esc(parts.paint)}</span></h2>
+          <h2>${esc(item.cn || item.name)}</h2>
+          ${item.cn && item.cn !== item.name ? `<div class="detail-title-en">${esc(item.name)}</div>` : ''}
           <div class="item-tags">
             <span class="tag cat">${item.catName}</span>
             ${item.refOnly
@@ -1287,16 +1292,22 @@
   function renderSuggest(q) {
     if (!q) { searchSuggest.classList.remove('show'); return; }
     const kw = q.toLowerCase();
-    const hits = ALL_ITEMS.filter(i => i.name.toLowerCase().includes(kw)).slice(0, 6);
+    const effKw2 = SEARCH_ALIAS[kw] || kw;
+    const hits = ALL_ITEMS.filter(i => i.name.toLowerCase().includes(effKw2) || (i.cn || '').toLowerCase().includes(effKw2)).slice(0, 6);
     if (!hits.length) {
       searchSuggest.innerHTML = '<div class="suggest-empty">未找到相关饰品</div>';
     } else {
-      searchSuggest.innerHTML = hits.map(i => `
+      searchSuggest.innerHTML = hits.map(i => {
+        const disp = i.cn || i.name;
+        const nm = disp.toLowerCase().includes(effKw2) ? highlight(disp, effKw2)
+          : (i.name.toLowerCase().includes(effKw2) ? highlight(i.name, effKw2) : esc(disp));
+        return `
         <div class="suggest-item" data-id="${i.id}">
           <img src="${i.image}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="__imgFallback(this, ${i.id})">
-          <span class="s-name">${highlight(i.name, kw)}</span>
+          <span class="s-name" title="${esc(i.name)}">${nm}</span>
           <span class="s-price ${i.changePercent > 0 ? 'up-c' : 'down-c'}">${fmt(i.currentPrice)}</span>
-        </div>`).join('');
+        </div>`;
+      }).join('');
     }
     searchSuggest.classList.add('show');
     searchSuggest.querySelectorAll('.suggest-item').forEach(el => {
