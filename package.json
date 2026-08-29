@@ -1,6 +1,6 @@
 {
   "name": "cs-skin-monitor",
-  "version": "6.1.0",
+  "version": "6.1.1",
   "description": "CS2 饰品市场行情监测 · 分层爬取（Steam 热门层/深度层 + Skinport/market.csgo/Waxpeer 多源）+ 磨损价位 + 涨跌分类，pywebview 桌面应用",
   "private": true,
   "scripts": {
