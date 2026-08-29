@@ -698,7 +698,9 @@ function buildWearDB(cache) {
       ...(e.refOnly ? { refOnly: 1 } : {}),
       ...(e.hist ? { hist: e.hist, chgPrev: e.chgPrev } : {})
     };
-    if (localImg) it.image = e.image; else it.icon = e.icon;
+    if (localImg) { it.image = e.image; it.icon = e.icon; } else it.icon = e.icon;
+    // 本地图条目也保留 icon 哈希：exe 捆绑包缺该图时前端 onerror 可回退 Steam CDN，
+    // 而不是直接掉到剪影兜底
     return it;
   })) + ';';
 
