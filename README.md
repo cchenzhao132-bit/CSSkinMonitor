@@ -41,6 +41,8 @@ node crawler.js --regen    # 重建 app/data.js
 # 把 app/data.js 复制到 exe 同目录，重启应用即可
 ```
 
+> **clone 后第一步**：`node crawler.js` + `node crawler.js --regen` 生成 `app/data.js`（数据文件为生成物，不入库）。
+
 ### 环境要求
 
 - Node.js ≥ 16（爬虫仅用 Node 内置模块 + 系统 `curl`）

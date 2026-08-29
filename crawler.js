@@ -393,19 +393,27 @@ function buildWearDB(cache) {
       const src = await sources.fetchAll(console.log);
       const names = new Set();
       Object.values(src).forEach(m => Object.keys(m).forEach(n => names.add(n)));
+      // 保留旧目录中的回填进度（histAt/hist），防止每次同步清掉 Skinport 历史锚点
+      let oldItems = {};
+      if (fs.existsSync(CATALOG_FILE)) {
+        try { oldItems = JSON.parse(fs.readFileSync(CATALOG_FILE, 'utf8')).items || {}; } catch (e) { oldItems = {}; }
+      }
       const items = {};
       for (const n of names) {
         const e = {};
         if (src.skinport && src.skinport[n]) e.skinport = src.skinport[n];
         if (src.mcsgo && src.mcsgo[n]) e.mcsgo = src.mcsgo[n];
         if (src.waxpeer && src.waxpeer[n]) e.waxpeer = src.waxpeer[n];
+        const o = oldItems[n];
+        if (o && o.histAt && o.hist) { e.histAt = o.histAt; e.hist = o.hist; }   // 回填成果不丢
         if (Object.keys(e).length) items[n] = e;
       }
       fs.writeFileSync(CATALOG_FILE, JSON.stringify({ syncedAt: TODAY, items }));
       const steamNames = new Set(Object.keys(cache));
       const union = Object.keys(items);
       const covered = union.filter(n => steamNames.has(n)).length;
-      console.log(`第三方目录并集：${union.length} 条；Steam 缓存已覆盖 ${covered}（${(covered / union.length * 100).toFixed(1)}%），缺口由深度层逐步补全`);
+      const backfilled = union.filter(n => items[n].histAt).length;
+      console.log(`第三方目录并集：${union.length} 条；Steam 缓存已覆盖 ${covered}（${(covered / union.length * 100).toFixed(1)}%）；已回填历史 ${backfilled} 条`);
     } catch (e) {
       console.log('第三方目录同步失败（跳过）:', e.message);
     }

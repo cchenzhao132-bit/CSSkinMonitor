@@ -13,7 +13,7 @@
     cat: 'all',         // 分类筛选（'all' 或 CAT 键）
     chg: 'all',         // 涨跌分类筛选（'all' 或 up2/up1/flat/down1/down2/none）
     favSort: 'time',    // 收藏页排序：time/price/chg
-    alch: { mode: '10', crate: null, tier: 'mil', st: false, fee: true, slots: [] },
+    alch: { mode: '10', crate: null, tier: 'mil', st: false, feeOn: true, feePct: 15, slots: [] },
     chart: null,
     range: 30,
     history: [],        // 浏览历史栈（用于返回）
@@ -139,7 +139,7 @@
       let r;
       try { r = JSON.parse(await api.start_refresh()); } catch (e) { return; }
       if (r.ok) {
-        showRefreshToast(`数据已落后 ${fmtAge(st.dataAgeSec)}，正在自动刷新最新行情…（约 2 分钟，已限流）`);
+        showRefreshToast(`数据上次更新于 ${fmtAge(st.dataAgeSec)}，正在自动刷新最新行情…（约 2 分钟，已限流）`);
         pollRefresh();
       }
     }
@@ -595,13 +595,14 @@
     }).sort((a, b) => b.prob - a.prob || (b.pr ? b.pr.price : 0) - (a.pr ? a.pr.price : 0));
     const priced = rows.filter(r => r.pr);
     const ev = priced.reduce((s, r) => s + r.prob * r.pr.price, 0);
-    const net = ev * (A.fee ? 0.87 : 1) - cost;
+    // Steam 费按"卖方所得 = 挂牌价 ÷ (1+费率)"口径（官方 5%+10% ≈ 15%）
+    const net = A.feeOn ? ev / (1 + A.feePct / 100) - cost : ev - cost;
     const roi = cost > 0 ? net / cost * 100 : 0;
 
     // 极值公式扫描（仅 10:1；5:1 组合空间不同）
     let optHtml = '';
     if (!is5) {
-      const opt = alchOptimize(crate, tier, A.st, A.fee);
+      const opt = alchOptimize(crate, tier, A.st, A.feeOn ? A.feePct : 0);
       if (opt) {
         const card = (title, r, cls) => {
           if (!r) return '';
@@ -646,7 +647,8 @@
         </div>
         <div class="alch-row alch-opts">
           <label class="alch-opt"><input type="checkbox" id="alchST" ${A.st ? 'checked' : ''}> StatTrak 模式（须全 ST 输入 → ST 产出；手套除外）</label>
-          <label class="alch-opt"><input type="checkbox" id="alchFee" ${A.fee ? 'checked' : ''}> 计入 13% Steam 市场费</label>
+          <label class="alch-opt"><input type="checkbox" id="alchFee" ${A.feeOn ? 'checked' : ''}> 计入市场费</label>
+          <input class="alch-feepct" id="alchFeePct" type="number" min="0" max="30" step="0.5" value="${A.feePct}" title="Steam 卖出综合费率（挂牌价 ÷ (1+费率) 为实际到手）">%
           <span class="wear-hint">产出浮动 = min + 平均输入浮动 × (max − min) · 磨损档默认档位中值，可手动改 · 每槽 ✎ 可手动输入皮肤与单价</span>
         </div>
         <div class="alch-slots" id="alchWrap">${A.slots.map((s, i) => slotHtml(s, i)).join('')}</div>
@@ -656,7 +658,7 @@
         <div class="stat-card"><span class="stat-label">输入成本（${nSlots} 件${costUnknown ? ` · ${costUnknown} 件无价` : ''}）</span><span class="stat-value">${fmt(cost)}</span></div>
         <div class="stat-card"><span class="stat-label">平均输入浮动</span><span class="stat-value">${avgF.toFixed(4)}</span></div>
         <div class="stat-card"><span class="stat-label">期望产出 EV</span><span class="stat-value">${fmt(ev)}</span></div>
-        <div class="stat-card"><span class="stat-label">净收益 ${A.fee ? '（含 13% 费）' : ''}</span><span class="stat-value ${net > 0 ? 'up-c' : 'down-c'}">${net > 0 ? '+' : ''}${fmt(net)}（${roi.toFixed(1)}%）</span></div>
+        <div class="stat-card"><span class="stat-label">净收益 ${A.feeOn ? `（含 ${A.feePct}% 费）` : ''}</span><span class="stat-value ${net > 0 ? 'up-c' : 'down-c'}">${net > 0 ? '+' : ''}${fmt(net)}（${roi.toFixed(1)}%）</span></div>
       </section>
       ${optHtml}
       <section class="chart-card">
@@ -682,7 +684,8 @@
     app.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { A.mode = b.dataset.mode; A.slots = []; renderAlchemy(); }));
     app.querySelectorAll('[data-tier]').forEach(b => b.addEventListener('click', () => { if (!b.disabled) { A.tier = b.dataset.tier; A.slots = []; renderAlchemy(); } }));
     $('#alchST').addEventListener('change', e => { A.st = e.target.checked; renderAlchemy(); });
-    $('#alchFee').addEventListener('change', e => { A.fee = e.target.checked; renderAlchemy(); });
+    $('#alchFee').addEventListener('change', e => { A.feeOn = e.target.checked; renderAlchemy(); });
+    $('#alchFeePct').addEventListener('change', e => { A.feePct = clampF(+e.target.value || 15, 0, 30); renderAlchemy(); });
     const wrap = $('#alchWrap');
     wrap.addEventListener('change', e => {
       const i = +e.target.dataset.i;
