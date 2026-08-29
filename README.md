@@ -1,5 +1,7 @@
 # CS 饰品市场监测 · CS Skin Price Radar
 
+*中文 | [English](README_EN.md)*
+
 一个**零依赖、完全本地**的 CS2（CS:GO）饰品行情监测桌面应用：真实价格、磨损价位表、武器分类、涨价/降价榜，双击即用（约 30MB，依赖系统自带 Edge WebView2）。
 
 > ⚠️ 本项目与 Valve / Steam 无任何关联；数据来自 Steam 社区市场公开页面，仅供个人学习与行情参考，不构成任何交易建议。
