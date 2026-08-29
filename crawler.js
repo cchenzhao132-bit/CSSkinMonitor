@@ -701,6 +701,11 @@ function buildWearDB(cache) {
     try { tradeJS = 'const TRADEUP = ' + fs.readFileSync(TRADEUP_FILE, 'utf8') + ';\n'; } catch (e) {}
   }
 
+  let scanJS = '';
+  if (fs.existsSync(path.join(CACHE_DIR, 'alch-scan.json'))) {
+    try { scanJS = 'const ALCHSCAN = ' + fs.readFileSync(path.join(CACHE_DIR, 'alch-scan.json'), 'utf8') + ';\n'; } catch (e) {}
+  }
+
   const engineJS = fs.readFileSync(path.join(__dirname, 'crawler-templates', 'engine.js'), 'utf8');
 
   const data = `/* =====================================================================
@@ -716,6 +721,7 @@ ${wearJS}
 
 ${histJS}
 ${tradeJS}
+${scanJS}
 ${engineJS}`;
 
   // 备份旧 data.js
