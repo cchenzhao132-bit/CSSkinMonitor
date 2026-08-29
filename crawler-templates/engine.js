@@ -130,13 +130,12 @@ function buildItem(def) {
 }
 
 const ALL_ITEMS = RAW.map(buildItem);
-// 榜单 = 热门池（涨价区/降价区各取涨幅居前者）；热门池不足时回退全量，保证榜单可用
+// 涨跌榜 = 全部有涨跌数据的条目（Steam 采集条目；第三方条目快照满 8 天自动加入）
+// hot 标记仅表示"最近一次爬取刷新过价格"，不再限制榜单范围
 const byRise = (a, b) => b.changePercent - a.changePercent;
 const byFall = (a, b) => a.changePercent - b.changePercent;
-const hotRise = ALL_ITEMS.filter(i => i.hot && i.changePercent > 0.15).sort(byRise);
-const hotFall = ALL_ITEMS.filter(i => i.hot && i.changePercent <= -0.15).sort(byFall);
-const RISING = (hotRise.length >= 10 ? hotRise : ALL_ITEMS.filter(i => i.changePercent > 0.15)).sort(byRise);
-const FALLING = (hotFall.length >= 10 ? hotFall : ALL_ITEMS.filter(i => i.changePercent <= -0.15)).sort(byFall);
+const RISING = ALL_ITEMS.filter(i => i.changeClass !== 'none' && i.changePercent > 0.15).sort(byRise);
+const FALLING = ALL_ITEMS.filter(i => i.changeClass !== 'none' && i.changePercent <= -0.15).sort(byFall);
 const HOT_COUNT = ALL_ITEMS.filter(i => i.hot).length;
 
 // ---------- SVG 剪影兜底图 ----------
