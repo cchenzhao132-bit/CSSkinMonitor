@@ -13,6 +13,7 @@
     cat: 'all',         // 分类筛选（'all' 或 CAT 键）
     chg: 'all',         // 涨跌分类筛选（'all' 或 up2/up1/flat/down1/down2/none）
     favSort: 'time',    // 收藏页排序：time/price/chg
+    alch: { mode: '10', crate: null, tier: 'mil', st: false, fee: true, slots: [] },
     chart: null,
     range: 30,
     history: [],        // 浏览历史栈（用于返回）
@@ -126,6 +127,7 @@
     const parts = h.split('/').filter(Boolean);
     if (parts[0] === 'detail' && parts[1]) return { page: 'detail', tab: state.route.tab, id: +parts[1] };
     if (parts[0] === 'fav') return { page: 'fav', tab: state.route.tab, id: null };
+    if (parts[0] === 'alchemy') return { page: 'alchemy', tab: state.route.tab, id: null };
     const tab = parts[0] === 'down' ? 'down' : 'up';
     return { page: 'list', tab, id: null };
   }
@@ -154,6 +156,7 @@
   function routeHash(r) {
     if (r.page === 'detail') return '/detail/' + r.id;
     if (r.page === 'fav') return '/fav';
+    if (r.page === 'alchemy') return '/alchemy';
     return r.tab === 'down' ? '/down' : '/up';
   }
   function goBack() {
@@ -196,6 +199,10 @@
     if (state.route.page === 'fav') goList(state.route.tab);   // 再点一次回榜单
     else nav('/fav');
   });
+  $('#alchBtn').addEventListener('click', () => {
+    if (state.route.page === 'alchemy') goList(state.route.tab);
+    else nav('/alchemy');
+  });
 
   // ---------- 渲染入口 ----------
   function render(opt) {
@@ -204,9 +211,12 @@
       fb.textContent = favCount() ? '★' : '☆';
       fb.classList.toggle('active', state.route.page === 'fav');
     }
+    const ab = $('#alchBtn');
+    if (ab) ab.classList.toggle('active', state.route.page === 'alchemy');
     if (state.loading) { renderSkeleton(); return; }
     if (state.route.page === 'detail') renderDetail();
     else if (state.route.page === 'fav') renderFavs();
+    else if (state.route.page === 'alchemy') renderAlchemy();
     else renderList(opt && opt.animate);
   }
 
@@ -294,6 +304,195 @@
     app.querySelectorAll('[data-sort]').forEach(btn => btn.addEventListener('click', () => { state.favSort = btn.dataset.sort; renderFavs(); }));
     app.querySelectorAll('#catChips .chip').forEach(btn => btn.addEventListener('click', () => { state.cat = btn.dataset.cat; renderFavs(); }));
     wireListDelegation();
+  }
+
+  // ---------- 炼金模拟器（Trade-Up，2025-10 规则：10:1 普通 / 5:1 隐秘→刀手套） ----------
+  let alchIdx = null;   // baseName → [items]
+  function alchIndex() {
+    if (alchIdx) return alchIdx;
+    const m = {};
+    ALL_ITEMS.forEach(i => { (m[famKeyOf(i.name)] = m[famKeyOf(i.name)] || []).push(i); });
+    alchIdx = m;
+    return m;
+  }
+  // 皮肤某磨损的价格：Steam 条目优先，其次第三方参考条目
+  function alchPrice(baseName, wearKey, st) {
+    const prefix = st ? (baseName.indexOf('★ ') === 0 ? '★ StatTrak™ ' : 'StatTrak™ ') : '';
+    const want = prefix + baseName + (wearKey === 'van' ? '' : ' (' + WEAR_EN[wearKey] + ')');
+    const it = (alchIndex()[baseName] || []).find(i => i.name === want);
+    return it ? { price: it.currentPrice, refOnly: !!it.refOnly } : null;
+  }
+  const wearBandOf = f => f < 0.07 ? 'fn' : f < 0.15 ? 'mw' : f < 0.38 ? 'ft' : f < 0.45 ? 'ww' : 'bs';
+  const WEAR_MID = { fn: 0.035, mw: 0.11, ft: 0.265, ww: 0.415, bs: 0.725 };
+  const BANDS = [['fn', 0, 0.07], ['mw', 0.07, 0.15], ['ft', 0.15, 0.38], ['ww', 0.38, 0.45], ['bs', 0.45, 1]];
+  const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const NEXT_TIER = { mil: 'restr', restr: 'clsfd', clsfd: 'cov', cov: 'gold' };
+
+  function renderAlchemy() {
+    const A = state.alch;
+    const crates = (typeof TRADEUP !== 'undefined' && TRADEUP && TRADEUP.crates) ? TRADEUP.crates : [];
+    if (!crates.length) {
+      app.innerHTML = '<div class="back-bar"><button class="back-btn" id="alchBackBtn">← 返回榜单</button></div>' +
+        '<div class="no-result"><div class="nr-title">⚗ 炼金数据未就绪</div><div class="nr-desc">先运行 <b>node build-tradeup.js</b> 生成炼金数据集，再执行 <b>node crawler.js --regen</b> 重建数据文件</div></div>';
+      $('#alchBackBtn').addEventListener('click', goBack);
+      return;
+    }
+    if (A.crate == null || A.crate >= crates.length) A.crate = 0;
+    const crate = crates[A.crate];
+    const is5 = A.mode === '5';
+    const tier = is5 ? 'cov' : A.tier;
+    const nSlots = is5 ? 5 : 10;
+    const pool = crate.t[tier] || [];
+    const firstCovCrate = () => { const i = crates.findIndex(c => (c.t.cov || []).length); return i < 0 ? 0 : i; };
+
+    // 槽位初始化 / 校验
+    while (A.slots.length < nSlots) A.slots.push(null);
+    A.slots.length = nSlots;
+    A.slots.forEach((s, i) => {
+      if (s && s.name && s.float != null) {
+        if (is5) { if (crates[s.ci] && (crates[s.ci].t.cov || []).some(p => p.n === s.name)) return; }
+        else if (pool.some(p => p.n === s.name)) return;
+      }
+      const ci = is5 ? ((crates[A.crate].t.cov || []).length ? A.crate : firstCovCrate()) : A.crate;
+      const pp = crates[ci].t[tier] || [];
+      const p0 = pp[0];
+      A.slots[i] = { ci, name: p0 ? p0.n : '', wear: 'ft', float: p0 ? clampF(WEAR_MID.ft, p0.f[0], p0.f[1]) : 0.25 };
+    });
+
+    const slotHtml = (s, i) => {
+      const sPool = is5 ? (crates[s.ci].t.cov || []) : pool;
+      const p = sPool.find(x => x.n === s.name) || sPool[0];
+      const f0 = p ? p.f[0] : 0, f1 = p ? p.f[1] : 1;
+      const wearOpts = BANDS.filter(b => Math.max(b[1], f0) < Math.min(b[2], f1))
+        .map(b => `<option value="${b[0]}" ${s.wear === b[0] ? 'selected' : ''}>${WEAR_ZH[b[0]]}</option>`).join('');
+      const pr = s.name ? alchPrice(s.name, s.wear, A.st) : null;
+      const crateSel = is5 ? `<select class="alch-crate" data-i="${i}">${crates.map((c, ci) => ((c.t.cov || []).length && c.gold) ? `<option value="${ci}" ${s.ci === ci ? 'selected' : ''}>${esc(c.name)}</option>` : '').join('')}</select>` : '';
+      return `
+        <div class="alch-slot">
+          <span class="alch-idx">${i + 1}</span>
+          ${crateSel}
+          <select class="alch-skin" data-i="${i}">${sPool.map(pp => `<option value="${esc(pp.n)}" ${pp.n === s.name ? 'selected' : ''}>${esc(pp.n)}</option>`).join('')}</select>
+          <select class="alch-wear" data-i="${i}">${wearOpts}</select>
+          <input class="alch-float" data-i="${i}" type="number" min="${f0}" max="${f1}" step="0.0001" value="${(+s.float).toFixed(4)}" title="输入浮动值">
+          <span class="alch-slot-price">${pr ? fmt(pr.price) : '—'}</span>
+        </div>`;
+    };
+
+    // 计算：平均浮动 → 成本 → 产出行 → EV/ROI
+    const avgF = A.slots.reduce((s, x) => s + (+x.float || 0), 0) / (A.slots.length || 1);
+    let cost = 0, costUnknown = 0;
+    A.slots.forEach(s => {
+      const p = s.name ? alchPrice(s.name, s.wear, A.st) : null;
+      if (p) cost += p.price; else costUnknown++;
+    });
+    let outcomes = [];
+    if (is5) {
+      const groups = {};
+      A.slots.forEach(s => { if (s.name) (groups[s.ci] = groups[s.ci] || []).push(s); });
+      for (const ci in groups) {
+        const g = crates[ci].gold || [];
+        if (!g.length) continue;
+        const w = groups[ci].length / 5;   // 每张输入给其集合金池 20% 权重
+        g.forEach(o => outcomes.push({ name: o.n, f: o.f, prob: w / g.length }));
+      }
+    } else {
+      const nextKey = NEXT_TIER[tier];
+      const outPool = nextKey === 'gold' ? (crate.gold || []) : (crate.t[nextKey] || []);
+      outcomes = outPool.map(o => ({ name: o.n, f: o.f, prob: 1 / outPool.length }));
+    }
+    const rows = outcomes.map(o => {
+      const outF = o.f[0] + avgF * (o.f[1] - o.f[0]);
+      const w = wearBandOf(outF);
+      const gloves = /Gloves|Glove/.test(o.name);
+      const st = A.st && !gloves;   // 手套产出永远无 ST
+      const pr = alchPrice(o.name, w, st);
+      return { name: o.name, prob: o.prob, outF, w, pr, stOff: A.st && gloves };
+    }).sort((a, b) => b.prob - a.prob || (b.pr ? b.pr.price : 0) - (a.pr ? a.pr.price : 0));
+    const priced = rows.filter(r => r.pr);
+    const ev = priced.reduce((s, r) => s + r.prob * r.pr.price, 0);
+    const net = ev * (A.fee ? 0.87 : 1) - cost;
+    const roi = cost > 0 ? net / cost * 100 : 0;
+
+    app.innerHTML = `
+      <div class="back-bar">
+        <button class="back-btn" id="alchBackBtn">← 返回榜单</button>
+        <span style="font-size:12px;color:var(--text-faint)">炼金模拟器 · 规则：2025-10 更新（10:1 普通 / 5:1 隐秘→刀手套）· 集合数据：游戏文件公开镜像</span>
+      </div>
+      <section class="chart-card alch-panel">
+        <div class="alch-row">
+          <div class="alch-seg">
+            <button class="chip ${A.mode === '10' ? 'active' : ''}" data-mode="10">10:1 普通升级</button>
+            <button class="chip ${A.mode === '5' ? 'active' : ''}" data-mode="5">5:1 刀具/手套</button>
+          </div>
+          <select class="alch-crate-main" id="alchCrate">${crates.map((c, ci) => `<option value="${ci}" ${A.crate === ci ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
+          ${is5 ? '' : `<div class="alch-seg">${['mil', 'restr', 'clsfd', 'cov'].map(t => {
+            const ok = (crate.t[t] || []).length && (t !== 'cov' || (crate.gold || []).length);
+            return `<button class="chip ${A.tier === t ? 'active' : ''}" data-tier="${t}" ${ok ? '' : 'disabled title="该集合无此档位或金池"'}>${{ mil: '军规→受限', restr: '受限→保密', clsfd: '保密→隐秘', cov: '隐秘→金色' }[t]}</button>`;
+          }).join('')}</div>`}
+        </div>
+        <div class="alch-row alch-opts">
+          <label class="alch-opt"><input type="checkbox" id="alchST" ${A.st ? 'checked' : ''}> StatTrak 模式（须全 ST 输入 → ST 产出；手套除外）</label>
+          <label class="alch-opt"><input type="checkbox" id="alchFee" ${A.fee ? 'checked' : ''}> 计入 13% Steam 市场费</label>
+          <span class="wear-hint">产出浮动 = min + 平均输入浮动 × (max − min) · 磨损档默认档位中值，可手动改浮动</span>
+        </div>
+        <div class="alch-slots" id="alchWrap">${A.slots.map((s, i) => slotHtml(s, i)).join('')}</div>
+      </section>
+      <section class="alch-summary">
+        <div class="stat-card"><span class="stat-label">输入成本（${nSlots} 件${costUnknown ? ` · ${costUnknown} 件无价` : ''}）</span><span class="stat-value">${fmt(cost)}</span></div>
+        <div class="stat-card"><span class="stat-label">平均输入浮动</span><span class="stat-value">${avgF.toFixed(4)}</span></div>
+        <div class="stat-card"><span class="stat-label">期望产出 EV</span><span class="stat-value">${fmt(ev)}</span></div>
+        <div class="stat-card"><span class="stat-label">净收益 ${A.fee ? '（含 13% 费）' : ''}</span><span class="stat-value ${net > 0 ? 'up-c' : 'down-c'}">${net > 0 ? '+' : ''}${fmt(net)}（${roi.toFixed(1)}%）</span></div>
+      </section>
+      <section class="chart-card">
+        <div class="chart-head"><div class="chart-title"><span class="dot"></span>可能产出（共 ${rows.length} 种${priced.length < rows.length ? ` · ${rows.length - priced.length} 种无价格数据，不计入 EV` : ''}）</div></div>
+        <table class="wear-table">
+          <thead><tr><th>可能产出</th><th>概率</th><th>产出浮动</th><th>磨损</th><th>参考价</th><th>价格来源</th></tr></thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr>
+                <td class="w-name">${esc(r.name)}${r.stOff ? '<span class="w-en">（手套不适用 ST，按普通版计价）</span>' : ''}</td>
+                <td class="mono">${(r.prob * 100).toFixed(1)}%</td>
+                <td class="mono">${r.outF.toFixed(4)}</td>
+                <td>${WEAR_ZH[r.w]}</td>
+                <td>${r.pr ? `<span class="w-price">${fmt(r.pr.price)}</span>` : '—'}</td>
+                <td>${r.pr ? (r.pr.refOnly ? '第三方' : 'Steam') : '<span style="color:var(--text-faint)">无数据</span>'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </section>`;
+
+    $('#alchBackBtn').addEventListener('click', goBack);
+    $('#alchCrate').addEventListener('change', e => { A.crate = +e.target.value; A.slots = []; renderAlchemy(); });
+    app.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { A.mode = b.dataset.mode; A.slots = []; renderAlchemy(); }));
+    app.querySelectorAll('[data-tier]').forEach(b => b.addEventListener('click', () => { if (!b.disabled) { A.tier = b.dataset.tier; A.slots = []; renderAlchemy(); } }));
+    $('#alchST').addEventListener('change', e => { A.st = e.target.checked; renderAlchemy(); });
+    $('#alchFee').addEventListener('change', e => { A.fee = e.target.checked; renderAlchemy(); });
+    const wrap = $('#alchWrap');
+    wrap.addEventListener('change', e => {
+      const i = +e.target.dataset.i;
+      if (isNaN(i)) return;
+      const s = A.slots[i];
+      const sPool = is5 ? (crates[s.ci].t.cov || []) : pool;
+      const cur = sPool.find(x => x.n === s.name) || sPool[0];
+      if (e.target.classList.contains('alch-crate')) {
+        s.ci = +e.target.value;
+        const np = (crates[s.ci].t.cov || [])[0];
+        if (np) { s.name = np.n; s.float = clampF(WEAR_MID[s.wear], np.f[0], np.f[1]); }
+        renderAlchemy();
+      } else if (e.target.classList.contains('alch-skin')) {
+        s.name = e.target.value;
+        const np = sPool.find(x => x.n === s.name);
+        if (np) s.float = clampF(WEAR_MID[s.wear], np.f[0], np.f[1]);
+        renderAlchemy();
+      } else if (e.target.classList.contains('alch-wear')) {
+        s.wear = e.target.value;
+        if (cur) s.float = clampF(WEAR_MID[s.wear], cur.f[0], cur.f[1]);
+        renderAlchemy();
+      } else if (e.target.classList.contains('alch-float')) {
+        s.float = clampF(+e.target.value || 0, cur ? cur.f[0] : 0, cur ? cur.f[1] : 1);
+        renderAlchemy();
+      }
+    });
   }
 
   // 事件委托：星标收藏 / 行点击 / 无结果入口点击（榜单、搜索、收藏页共用）

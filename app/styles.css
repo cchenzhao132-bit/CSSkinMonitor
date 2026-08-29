@@ -529,3 +529,32 @@ body {
 .fav-detail-btn.on { color: var(--gold); border-color: rgba(255, 215, 0, 0.55); background: rgba(255, 215, 0, 0.08); }
 .fav-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
 @media (max-width: 720px) { .fav-stats { grid-template-columns: 1fr; } }
+
+/* ---------------- 炼金模拟器 ---------------- */
+.alch-panel { margin-bottom: 16px; }
+.alch-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 10px; }
+.alch-seg { display: flex; gap: 6px; }
+.alch-crate-main {
+  flex: 1 1 260px; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 13px;
+}
+.alch-opts { font-size: 12px; color: var(--text-dim); }
+.alch-opt { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.alch-opt input { accent-color: var(--accent); }
+.alch-slots { display: flex; flex-direction: column; gap: 6px; }
+.alch-slot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.alch-idx {
+  width: 22px; height: 22px; flex-shrink: 0; border-radius: 6px; background: var(--panel-2);
+  color: var(--text-dim); font-size: 11px; display: flex; align-items: center; justify-content: center;
+}
+.alch-slot select, .alch-slot input {
+  background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 8px; font-size: 12px; font-family: var(--font);
+}
+.alch-slot select:focus, .alch-slot input:focus { outline: none; border-color: var(--accent); }
+.alch-skin { flex: 1 1 220px; }
+.alch-float { width: 92px; font-family: var(--mono); }
+.alch-slot-price { font-family: var(--mono); font-size: 12.5px; color: var(--text); min-width: 70px; text-align: right; }
+.alch-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+.alch-summary .stat-value { font-size: 17px; }
+@media (max-width: 720px) { .alch-summary { grid-template-columns: repeat(2, 1fr); } .alch-skin { flex-basis: 100%; } }

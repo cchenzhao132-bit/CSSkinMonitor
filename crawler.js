@@ -36,6 +36,7 @@ const CACHE_DIR = path.join(ROOT, 'cache');
 const CACHE_FILE = path.join(CACHE_DIR, 'crawler-cache.json');
 const HIST_FILE = path.join(CACHE_DIR, 'price-history.json');
 const CATALOG_FILE = path.join(CACHE_DIR, 'catalog.json');
+const TRADEUP_FILE = path.join(CACHE_DIR, 'tradeup.json');
 const DATA_JS = path.join(APP, 'data.js');
 const IMG_DIR = path.join(APP, 'images');
 
@@ -659,6 +660,11 @@ function buildWearDB(cache) {
     }
   }
 
+  let tradeJS = '';
+  if (fs.existsSync(TRADEUP_FILE)) {
+    try { tradeJS = 'const TRADEUP = ' + fs.readFileSync(TRADEUP_FILE, 'utf8') + ';\n'; } catch (e) {}
+  }
+
   const engineJS = fs.readFileSync(path.join(ROOT, 'crawler-templates', 'engine.js'), 'utf8');
 
   const data = `/* =====================================================================
@@ -673,6 +679,7 @@ ${rawJS}
 ${wearJS}
 
 ${histJS}
+${tradeJS}
 ${engineJS}`;
 
   // 备份旧 data.js
