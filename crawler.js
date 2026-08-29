@@ -425,13 +425,22 @@ function buildWearDB(cache) {
         // 成交活跃度优先：流动性好的物品才有意义的「7 日涨跌」（否则 7 天成交不足 3 次会被门槛跳过）
         targets.sort((a, b) => (b[2] - a[2]) || (b[1] - a[1]));
         const list = targets.slice(0, BF_N).map(t => t[0]);
-        console.log(`历史回填：${list.length}/${targets.length} 条待回填（限流 40s/批 × 10 名称）`);
-        const BATCH = 100, BF_DELAY = 40000;   // 每请求 100 个名称（实测上限≥100），40s 间隔守卫 8 次/5 分钟限流
+        console.log(`历史回填：${list.length}/${targets.length} 条待回填（限流 75s/批 × 100 名称）`);
+        const BATCH = 100, BF_DELAY = 75000;   // 每请求 100 个名称；75s 间隔 = 4 次/5 分钟，给 8 次/5 分钟文档限流留足余量（贴线飞行会触发 429 惩罚）
         let done = 0;
         for (let i = 0; i < list.length; i += BATCH) {
           const batch = list.slice(i, i + BATCH);
-          let res = [];
-          try { res = await sources.skinportHistory(batch); } catch (e) { console.log(`  batch fail: ${e.message}`); }
+          let res = null, attempt = 0;
+          while (attempt < 3) {
+            try { res = await sources.skinportHistory(batch); break; }
+            catch (e) {
+              attempt++;
+              const is429 = /429/.test(e.message);
+              const wait = is429 ? 600000 * attempt : 20000;   // 429：退避 10/20 分钟，等限流窗口过去；其他错误 20s
+              console.log(`  batch ${i / BATCH + 1} attempt ${attempt} 失败（${e.message}），等待 ${Math.round(wait / 1000)}s 后重试`);
+              await sleep(wait);
+            }
+          }
           if (Array.isArray(res)) {
             for (const it of res) {
               const c = catData.items[it.market_hash_name];
