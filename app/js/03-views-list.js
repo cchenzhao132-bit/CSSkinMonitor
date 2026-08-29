@@ -44,7 +44,7 @@
     const hasMore = state.listShown < filtered.length;
 
     const listHTML = filtered.length
-      ? filtered.slice(0, state.listShown).map((item, idx) => rowHTML(item, idx, kw)).join('')
+      ? filtered.slice(0, state.listShown).map((item, idx) => rowHTML(item, idx, effKw)).join('')
         + (hasMore ? '<div id="listSentinel" class="list-sentinel">↓ 滚动加载更多</div>' : '')
       : noResultHTML();
 
@@ -136,7 +136,7 @@
   function appendRows() {
     const filtered = state.listItems;
     if (!filtered || state.listShown >= filtered.length) return;
-    const kw = state.query.trim().toLowerCase();
+    const kw = (SEARCH_ALIAS[state.query.trim().toLowerCase()] || state.query.trim().toLowerCase());
     const next = Math.min(state.listShown + BATCH, filtered.length);
     const html = filtered
       .slice(state.listShown, next)
@@ -192,7 +192,7 @@
           <div class="change-block">
             ${noChg
               ? '<div class="change-percent" style="background:rgba(255,255,255,0.05);color:var(--text-faint)">快照积累中</div>'
-              : `<div class="change-amount ${up ? 'up-c' : 'down-c'}">${fmtSign(item.changeAmount).replace('+', '+¥').replace('-', '-¥')}</div>
+              : `<div class="change-amount ${up ? 'up-c' : 'down-c'}">${fmtSigned(item.changeAmount)}</div>
             <div class="change-percent ${up ? 'up-c up-bg' : 'down-c down-bg'}">
               <span class="arrow">${up ? '▲' : '▼'}</span>${up ? '+' : ''}${item.changePercent.toFixed(2)}%
             </div>`}
@@ -219,3 +219,76 @@
           : '当前筛选条件下没有饰品'}</div>
       </div>`;
   }
+
+  // ---------- 搜索（防抖 300ms + 下拉建议；模块化拆分时曾整段丢失，此处恢复） ----------
+  let debounceTimer = null;
+  searchInput.addEventListener('input', () => {
+    const v = searchInput.value;
+    searchWrap.classList.toggle('has-value', !!v);
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      state.query = v;
+      renderSuggest(v.trim());
+      if (state.route.page === 'fav') renderFavs();
+      else if (state.route.page === 'list') renderList(false);
+    }, 300);
+  });
+
+  searchInput.addEventListener('focus', () => renderSuggest(searchInput.value.trim()));
+  document.addEventListener('click', e => {
+    if (!searchWrap.contains(e.target)) searchSuggest.classList.remove('show');
+  });
+
+  $('#searchClear').addEventListener('click', () => {
+    searchInput.value = '';
+    state.query = '';
+    searchWrap.classList.remove('has-value');
+    searchSuggest.classList.remove('show');
+    if (state.route.page === 'fav') renderFavs();
+    else if (state.route.page === 'list') renderList(false);
+    searchInput.focus();
+  });
+
+  function renderSuggest(q) {
+    if (!q) { searchSuggest.classList.remove('show'); return; }
+    const kw = q.toLowerCase();
+    const effKw = SEARCH_ALIAS[kw] || kw;
+    const hits = ALL_ITEMS.filter(i => i.name.toLowerCase().includes(effKw) || (i.cn || '').toLowerCase().includes(effKw)).slice(0, 6);
+    if (!hits.length) {
+      searchSuggest.innerHTML = '<div class="suggest-empty">未找到相关饰品</div>';
+    } else {
+      searchSuggest.innerHTML = hits.map(i => {
+        const disp = i.cn || i.name;
+        const nm = disp.toLowerCase().includes(effKw) ? highlight(disp, effKw)
+          : (i.name.toLowerCase().includes(effKw) ? highlight(i.name, effKw) : esc(disp));
+        return `
+        <div class="suggest-item" data-id="${i.id}">
+          <img src="${i.image}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="__imgFallback(this, ${i.id})">
+          <span class="s-name" title="${esc(i.name)}">${nm}</span>
+          <span class="s-price ${i.changePercent > 0 ? 'up-c' : 'down-c'}">${fmt(i.currentPrice)}</span>
+        </div>`;
+      }).join('');
+    }
+    searchSuggest.classList.add('show');
+    searchSuggest.querySelectorAll('.suggest-item').forEach(el => {
+      el.addEventListener('click', () => {
+        searchSuggest.classList.remove('show');
+        searchInput.value = '';
+        state.query = '';
+        searchWrap.classList.remove('has-value');
+        goDetail(+el.dataset.id);
+      });
+    });
+  }
+
+  // 回车：跳到第一个建议项；无建议时渲染无结果提示
+  searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const first = searchSuggest.querySelector('.suggest-item');
+      if (first) first.click();
+      else if (state.route.page === 'list') {
+        renderList(false);
+        searchSuggest.classList.remove('show');
+      }
+    }
+  });
