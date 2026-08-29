@@ -112,6 +112,7 @@ function buildItem(def) {
     rarity: def.rarity, rarityName: RARITY[def.rarity].name, rarityColor: RARITY[def.rarity].color,
     cat: def.cat, catName: (CAT[def.cat] || CAT.misc).name,
     hot: def.hot === 1,                     // 热门池标记（最近一次爬取刷新过价格）
+    ref: def.ref || null,                   // 第三方市场参考价 { sp: Skinport, mc: market.csgo, wx: Waxpeer }
     sil: def.sil
   };
 }

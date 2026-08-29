@@ -416,6 +416,35 @@
       </section>`;
   }
 
+  // ---------- 详情页：第三方市场参考价卡 ----------
+  function refCardHTML(item) {
+    if (!item.ref) return '';
+    const rows = [
+      ['Skinport 最低', item.ref.sp],
+      ['market.csgo.com', item.ref.mc],
+      ['Waxpeer 最低', item.ref.wx]
+    ].filter(r => r[1] != null);
+    if (!rows.length) return '';
+    const steamP = item.currentPrice;
+    const sameMarket = r => r[1] > 0 ? (r[1] <= steamP ? 'ref-low' : 'ref-high') : '';
+    return `
+      <section class="chart-card ref-card">
+        <div class="chart-head">
+          <div class="chart-title"><span class="dot dot-ref"></span>第三方市场参考
+            <span class="wear-hint">第三方现货市场最低价（USD→CNY），与 Steam 挂牌价口径不同，仅供跨平台比价</span>
+          </div>
+        </div>
+        <div class="ref-grid">
+          ${rows.map(r => `
+            <div class="ref-item">
+              <span class="ref-name">${r[0]}</span>
+              <span class="ref-price ${sameMarket(r)}">${fmt(r[1])}</span>
+              <span class="ref-delta">${r[1] <= steamP ? '低于 Steam ' : '高于 Steam '}${Math.abs((r[1] / steamP - 1) * 100).toFixed(0)}%</span>
+            </div>`).join('')}
+        </div>
+      </section>`;
+  }
+
   // ---------- 详情页 ----------
   function renderDetail() {
     const item = ALL_ITEMS.find(i => i.id === state.route.id);
@@ -491,7 +520,8 @@
         <div class="dstat"><div class="ds-label">30日涨跌幅</div><div class="ds-value ${d30 > 0 ? 'up-c' : 'down-c'}">${d30 > 0 ? '+' : ''}${d30.toFixed(2)}%</div></div>
         <div class="dstat"><div class="ds-label">历史振幅</div><div class="ds-value">${(((item.highestPrice - item.lowestPrice) / item.lowestPrice) * 100).toFixed(1)}%</div></div>
         <div class="dstat"><div class="ds-label">90日波动率</div><div class="ds-value">${vola.toFixed(2)}%</div></div>
-      </div>`;
+      </div>
+      ${refCardHTML(item)}`;
 
     $('#backBtn').addEventListener('click', goBack);
 

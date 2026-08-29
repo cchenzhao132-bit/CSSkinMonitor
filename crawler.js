@@ -28,12 +28,14 @@ const { execFileSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const sources = require('./sources');
 
 const ROOT = __dirname;
 const APP = path.join(ROOT, 'app');
 const CACHE_DIR = path.join(ROOT, 'cache');
 const CACHE_FILE = path.join(CACHE_DIR, 'crawler-cache.json');
 const HIST_FILE = path.join(CACHE_DIR, 'price-history.json');
+const CATALOG_FILE = path.join(CACHE_DIR, 'catalog.json');
 const DATA_JS = path.join(APP, 'data.js');
 const IMG_DIR = path.join(APP, 'images');
 
@@ -348,6 +350,28 @@ function buildWearDB(cache) {
     }
     fs.writeFileSync(CACHE_FILE, JSON.stringify(cache));
 
+    // ---- 第三方市场目录 + 参考价（每轮各 1 次请求，单源失败不影响主流程） ----
+    try {
+      const src = await sources.fetchAll(console.log);
+      const names = new Set();
+      Object.values(src).forEach(m => Object.keys(m).forEach(n => names.add(n)));
+      const items = {};
+      for (const n of names) {
+        const e = {};
+        if (src.skinport && src.skinport[n]) e.skinport = src.skinport[n];
+        if (src.mcsgo && src.mcsgo[n]) e.mcsgo = src.mcsgo[n];
+        if (src.waxpeer && src.waxpeer[n]) e.waxpeer = src.waxpeer[n];
+        if (Object.keys(e).length) items[n] = e;
+      }
+      fs.writeFileSync(CATALOG_FILE, JSON.stringify({ syncedAt: TODAY, items }));
+      const steamNames = new Set(Object.keys(cache));
+      const union = Object.keys(items);
+      const covered = union.filter(n => steamNames.has(n)).length;
+      console.log(`第三方目录并集：${union.length} 条；Steam 缓存已覆盖 ${covered}（${(covered / union.length * 100).toFixed(1)}%），缺口由深度层逐步补全`);
+    } catch (e) {
+      console.log('第三方目录同步失败（跳过）:', e.message);
+    }
+
     // ---- 每日价格快照 + 可选历史层（均写入 hist.byName: { name: [[dateISO, priceCNY], ...] }） ----
     let hist = fs.existsSync(HIST_FILE) ? JSON.parse(fs.readFileSync(HIST_FILE, 'utf8')) : { byName: {} };
     hist.byName = hist.byName || {};
@@ -423,17 +447,32 @@ function buildWearDB(cache) {
 
   // 2. 转换为 RAW（按价格降序 = 热门优先，id 递增）；seen=今天 的条目进入热门池（hot=1）
   const entries = Object.values(cache).sort((a, b) => b.usd - a.usd);
-  const RAW = entries.map((e, i) => ({
-    id: i + 1,
-    name: e.name,
-    base: Math.round(e.usd * RATE_EXCHANGE * 100) / 100,   // 真实当前价（CNY）
-    rarity: (e.quality || qualityOf(e.type).key),
-    cat: e.cat || catOf(e.type, e.name),                   // 武器/收藏品分类
-    sil: silOf(e.name, e.cat || catOf(e.type, e.name)),
-    hot: e.seen === TODAY ? 1 : 0,                         // 热门池标记（榜单数据源）
-    icon: e.icon,
-    imgKey: md5(e.name)
-  }));
+  // 第三方参考价附着（目录在磁盘上则 regen 也可用；CNY 换算，字段 sp/mc/wx 分别为 Skinport/market.csgo/Waxpeer）
+  let catalogItems = {};
+  if (fs.existsSync(CATALOG_FILE)) {
+    try { catalogItems = JSON.parse(fs.readFileSync(CATALOG_FILE, 'utf8')).items || {}; } catch (e) {}
+  }
+  const toCNY = usd => Math.round(usd * RATE_EXCHANGE * 100) / 100;
+  const RAW = entries.map((e, i) => {
+    const c = catalogItems[e.name];
+    const ref = c ? {
+      ...(c.skinport && c.skinport.min > 0 ? { sp: toCNY(c.skinport.min) } : {}),
+      ...(c.mcsgo && c.mcsgo.price > 0 ? { mc: toCNY(c.mcsgo.price) } : {}),
+      ...(c.waxpeer && c.waxpeer.min > 0 ? { wx: toCNY(c.waxpeer.min) } : {})
+    } : null;
+    return {
+      id: i + 1,
+      name: e.name,
+      base: Math.round(e.usd * RATE_EXCHANGE * 100) / 100,   // 真实当前价（CNY）
+      rarity: (e.quality || qualityOf(e.type).key),
+      cat: e.cat || catOf(e.type, e.name),                   // 武器/收藏品分类
+      sil: silOf(e.name, e.cat || catOf(e.type, e.name)),
+      hot: e.seen === TODAY ? 1 : 0,                         // 热门池标记（榜单数据源）
+      ...(ref && Object.keys(ref).length ? { ref } : {}),    // 第三方参考价（可选）
+      icon: e.icon,
+      imgKey: md5(e.name)
+    };
+  });
   // 品质 key 白名单校验（engine RARITY 必须能命中）
   const RARITY_KEYS = new Set(['common', 'mil', 'restr', 'clsfd', 'covert', 'rare', 'contra']);
   for (const e of RAW) if (!RARITY_KEYS.has(e.rarity)) e.rarity = 'common';
@@ -463,8 +502,9 @@ function buildWearDB(cache) {
 
   // 5. 生成 data.js（RAW 区块 + 磨损价位库 + 真实历史 + 引擎模板）
   const rawJS = 'const RAW = ' + JSON.stringify(
-    RAW.map(({ id, name, base, rarity, cat, sil, hot, image }) =>
-      hot ? { id, name, base, rarity, cat, sil, hot, image } : { id, name, base, rarity, cat, sil, image }),
+    RAW.map(({ id, name, base, rarity, cat, sil, hot, ref, image }) =>
+      ref ? { id, name, base, rarity, cat, sil, hot, ref, image }
+          : (hot ? { id, name, base, rarity, cat, sil, hot, image } : { id, name, base, rarity, cat, sil, image })),
     null, 1
   ) + ';';
 

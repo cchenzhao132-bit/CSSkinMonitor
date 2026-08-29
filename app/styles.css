@@ -463,3 +463,17 @@ body {
   .wear-hint { display: none; }
   .w-en { font-size: 10px; }
 }
+
+/* ---------------- 详情页：第三方市场参考 ---------------- */
+.ref-card { margin-bottom: 18px; }
+.chart-title .dot-ref { background: #e4ae39; }
+.ref-grid { display: flex; flex-wrap: wrap; gap: 10px; padding: 4px 2px 8px; }
+.ref-item {
+  flex: 1 1 160px; background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 10px 14px; display: flex; flex-direction: column; gap: 3px;
+}
+.ref-item .ref-name { font-size: 11.5px; color: var(--text-dim); }
+.ref-item .ref-price { font-family: var(--mono); font-size: 16px; font-weight: 700; }
+.ref-item .ref-price.ref-low { color: var(--down); }
+.ref-item .ref-price.ref-high { color: var(--up); }
+.ref-item .ref-delta { font-size: 10.5px; color: var(--text-faint); }

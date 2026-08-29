@@ -20,9 +20,12 @@
 | 数据 | 来源 | 时效 |
 |---|---|---|
 | 当前价 / 磨损挂牌价 / 分类 / 图片 | Steam 市场公开端点 | 热门池每日刷新；全库截至最近一次深度爬取 |
+| **第三方参考价**（详情页） | [Skinport](https://docs.skinport.com/)、[market.csgo.com](https://market.csgo.com/en/api)、Waxpeer 公开 API | 每次运行爬虫时同步（每源 1 次请求），详情页显示与 Steam 的价差 |
+| 物品目录并集 | 三方市场并集（约 3 万条） | 用于覆盖率核算与深度爬取缺口定位 |
 | 价格历史 | `cache/price-history.json` 每日快照 | **运行越久越真实**；不足 8 天的条目回退本地模拟走势（页面已标注） |
 | 7 日涨跌幅 | 由价格历史计算 | 快照 ≥8 天后为真实值，之前为演示模拟 |
 
+- **多源原则**：Steam 挂牌价是唯一行情口径（本应用的定位）；第三方现货市场价（Skinport/market.csgo/Waxpeer）口径为真实货币现金价，通常低于 Steam 钱包价 20-30%，仅在详情页作为跨平台比价参考，明确标注来源，绝不与 Steam 价混用
 - 汇率：USD → CNY 固定 `7.25`（`--rate` 可调），与国内平台（BUFF/悠悠有品）报价不可直接对比
 - 想立即获得真实历史？见下方「可选：真实历史层」
 
@@ -62,6 +65,7 @@ node crawler.js --reset              # 清空缓存重新抓
 ```
 
 - **分层动机**：全市场 ~3.5 万条目全量爬取需数小时；实际行情关注点集中在热门池，深度层低频补全即可
+- **多源目录**（`sources.js`）：每轮运行从 Skinport / market.csgo.com / Waxpeer 各取 1 次公开价格表（共 3 次请求 ≈ 近 3 万条），生成 `cache/catalog.json` 物品目录并集 + 覆盖率报告，并为详情页提供第三方参考价；单源失败自动跳过
 - **断点续传**：进度落盘 `cache/crawler-cache.json`，中断重跑自动续传；已收录条目仅刷新价格
 - **限流**：列表页 3.5s/请求、历史层 3s/请求，失败指数退避重试 3 次
 - **修复翻页**：Steam 无视 `count` 参数固定返回 ~10 条/页 → 按实际返回数自适应推进
@@ -84,8 +88,9 @@ node crawler.js --regen
 ## 合规声明
 
 - 遵循 [steamcommunity.com/robots.txt](https://steamcommunity.com/robots.txt)：本项目用到的 `/market/search/render/` 均不在禁止清单内
+- 第三方市场仅使用官方公开文档 API（Skinport / market.csgo.com / Waxpeer），遵守其文档限流（Skinport 8 次/5 分钟，本项目每轮 1 次），来源在应用内明确标注
 - 不登录、不破解任何访问控制；所有数据为匿名（或你本人账号）在浏览器中同样可见的公开数据
-- 固定限流 + 重试退避，不对 Steam 服务造成不合理负担；请勿绕过、修改或移除限流参数后大量抓取
+- 固定限流 + 重试退避，不对任何服务造成不合理负担；请勿绕过、修改或移除限流参数后大量抓取
 - 物品图片版权归 Valve 所有，本仓库不入库图片（运行时从 Steam CDN 加载或本地缓存，仅供个人使用）
 - 请勿将本项目数据用于商业转售；使用本项目产生的任何行为由使用者自行负责
 
@@ -94,12 +99,13 @@ node crawler.js --regen
 ```
 cs-skin-monitor/
 ├── main.py                      # pywebview 入口（支持启动路由参数 + 外置 data.js 覆盖）
-├── crawler.js                   # 分层爬虫（热门/武器/刀具/收藏品 + 磨损价位库 + 价格快照）
+├── crawler.js                   # 分层爬虫（热门/武器/刀具/收藏品 + 磨损价位库 + 价格快照 + 多源目录）
+├── sources.js                   # 第三方市场源（Skinport / market.csgo.com / Waxpeer，公开 API）
 ├── crawler-templates/engine.js  # 运行时引擎（真实历史接入/榜单/分类/SVG 兜底）
 ├── app/                         # 前端（原生 HTML/CSS/JS + 本地 ECharts，无构建步骤）
 │   ├── index.html / styles.css / app.js
 │   └── data.js                  # 爬虫生成（RAW + WEARDB + HISTORY + engine）
-├── cache/                       # 爬虫缓存 + 每日价格快照（gitignore）
+├── cache/                       # 爬虫缓存 + 每日价格快照 + 多源目录（gitignore）
 └── requirements.txt
 ```
 
