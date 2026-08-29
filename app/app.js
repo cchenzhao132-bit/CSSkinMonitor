@@ -532,7 +532,7 @@
           <span class="pc-emoji">⚡</span>
           <div class="pc-label">${item.refOnly ? '第三方参考价（Steam 未采集）' : '当前价格'}</div>
           <div class="pc-value">${fmt(item.currentPrice)}</div>
-          <div class="pc-sub">${item.refOnly ? '来自第三方现货市场 · 深度爬取后升级为 Steam 挂牌价' : `7日前 ${fmt(item.previousPrice)} · <span class="${up ? 'up-c' : 'down-c'}">${up ? '+' : ''}${fmtSign(item.changeAmount)}</span>`}</div>
+          <div class="pc-sub">${item.refOnly ? '来自第三方现货市场 · 深度爬取后升级为 Steam 挂牌价' : `7日前 ${fmt(item.previousPrice)} · <span class="${up ? 'up-c' : 'down-c'}">${fmtSign(item.changeAmount)}</span>`}</div>
         </div>
         <div class="pcard p-high">
           <span class="pc-emoji">📈</span>
