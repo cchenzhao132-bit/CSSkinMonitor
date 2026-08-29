@@ -1,0 +1,19 @@
+{
+  "name": "cs-skin-monitor",
+  "version": "6.1.0",
+  "description": "CS2 饰品市场行情监测 · 分层爬取（Steam 热门层/深度层 + Skinport/market.csgo/Waxpeer 多源）+ 磨损价位 + 涨跌分类，pywebview 桌面应用",
+  "private": true,
+  "scripts": {
+    "crawl": "node crawler.js",
+    "crawl:weapons": "node crawler.js --mode weapons",
+    "crawl:knives": "node crawler.js --mode knives",
+    "crawl:collect": "node crawler.js --mode collect",
+    "backfill": "node crawler.js --pages 0 --backfill 99999",
+    "regen": "node crawler.js --regen",
+    "build": "python -m PyInstaller --onefile --windowed --name CSSkinMonitor --add-data \"app;app\" main.py"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "license": "MIT"
+}

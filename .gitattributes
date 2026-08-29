@@ -1,0 +1,6 @@
+# 行尾规范化：仓库内统一 LF，检出时按平台
+* text=auto
+*.png binary
+*.jpg binary
+*.ico binary
+*.exe binary
