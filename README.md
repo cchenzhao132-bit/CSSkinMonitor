@@ -113,10 +113,15 @@ cs-skin-monitor/
 ├── main.py                      # pywebview 入口（支持启动路由参数 + 外置 data.js 覆盖）
 ├── crawler.js                   # 分层爬虫（热门/武器/刀具/收藏品 + 磨损价位库 + 价格快照 + 多源目录）
 ├── sources.js                   # 第三方市场源（Skinport / market.csgo.com / Waxpeer，公开 API）
-├── crawler-templates/engine.js  # 运行时引擎（真实历史接入/榜单/分类/SVG 兜底）
+├── scan-tradeup.js              # 当日炼金雷达（全市场 集合×档位 极值配方扫描）
+├── build-tradeup.js             # 炼金元数据构建（集合/float 区间/金池，双语）
+├── build-names.js               # 饰品中文名映射构建（ByMykel zh-CN，8 类端点）
+├── regression.js                # 回归测试（数据层断言 + 路由渲染检查，npm test）
+├── crawler-templates/engine.js  # 运行时引擎（真实历史接入/三榜/分类/SVG 兜底）
 ├── app/                         # 前端（原生 HTML/CSS/JS + 本地 ECharts，无构建步骤）
-│   ├── index.html / styles.css / app.js
-│   └── data.js                  # 爬虫生成（RAW + WEARDB + HISTORY + engine）
+│   ├── index.html / styles.css
+│   ├── js/                      # 模块化前端（core/router/views-list/fav/alchemy/detail/boot）
+│   └── data.js                  # 爬虫生成（RAW + WEARDB + HISTORY + TRADEUP + engine，不入库）
 ├── cache/                       # 爬虫缓存 + 每日价格快照 + 多源目录（gitignore）
 └── requirements.txt
 ```
