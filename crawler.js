@@ -577,6 +577,20 @@ function buildWearDB(cache) {
     ? (JSON.parse(fs.readFileSync(NAMES_FILE, 'utf8'))) : {};
   const NAMES = namesData.map || {};
   const ICONS = namesData.icons || {};   // 英文名 → icon 哈希（第三方条目补图用）
+  // icon 查找链：整名 → 剥 Souvenir/StatTrak 前缀（★ 保留）→ 再剥磨损后缀
+  // （ByMykel 键为基础名；ST/纪念品共用普通版图标；贴纸等整名条目走第一级）
+  const iconFor = name => {
+    if (ICONS[name]) return ICONS[name];
+    let k = name;
+    for (const pre of ['Souvenir ', '★ StatTrak™ ', 'StatTrak™ ']) {
+      if (k.indexOf(pre) === 0) {
+        k = k.slice(pre.length);
+        if (pre.charAt(0) === '★' && k.indexOf('★') !== 0) k = '★ ' + k;
+        break;
+      }
+    }
+    return ICONS[k.replace(WEAR_RE, '')] || ICONS[k] || null;
+  };
   const WEAR_ZH_C = { fn: '崭新出厂', mw: '略有磨损', ft: '久经沙场', ww: '破损不堪', bs: '战痕累累' };
   const composeCn = name => {
     const v = parseVariant(name);
@@ -638,7 +652,7 @@ function buildWearDB(cache) {
       sil: silOf(name, cat),
       hot: 0,
       ref,
-      ...(ICONS[name] ? { icon: ICONS[name] } : {}),   // 第三方条目补官方图标
+      ...(iconFor(name) ? { icon: iconFor(name) } : {}),   // 第三方条目补官方图标（前缀/磨损剥离匹配）
       ...(c.hist ? { hist: c.hist.a, chgPrev: c.hist.p7 } : {}),
       refOnly: 1,
       imgKey: md5(name)

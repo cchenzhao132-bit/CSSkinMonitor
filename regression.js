@@ -86,6 +86,14 @@ ok(refOnlyNoData, '无历史第三方条目均为「无数据」');
   ok(n === kil.t.restr.length, `炼金产出定价覆盖 ${n}/${kil.t.restr.length}`);
   ok(ev > 1, `炼金 EV 为正实数（¥${ev.toFixed(2)}）`);
   ok(kil.gold && kil.gold.length >= 5 && kil.gold.every(g => g.cn), '金池含中文名');
+
+  // 第三方条目图片：武器/刀/手套类 icon 覆盖 ≥ 90%（防"Redline 无图"类回归）
+  {
+    const SKIPCAT = ['sticker', 'graffiti', 'charm', 'patch', 'agent', 'music', 'capsule', 'case', 'misc'];
+    const refW = RAW.filter(i => i.refOnly && !SKIPCAT.includes(i.cat));
+    const withIc = refW.filter(i => i.icon).length;
+    ok(refW.length === 0 || withIc / refW.length >= 0.9, `refOnly 武器类 icon 覆盖 ≥ 90%（实际 ${(withIc / refW.length * 100).toFixed(0)}%，${refW.length - withIc} 条缺失）`);
+  }
 }
 
 // 涨跌分类分布合计 = 全库
