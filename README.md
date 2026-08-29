@@ -6,7 +6,7 @@
 
 > ⚠️ 本项目与 Valve / Steam 无任何关联；数据来自 Steam 社区市场公开页面，仅供个人学习与行情参考，不构成任何交易建议。
 
-![screenshot](shot-v6-real-list.png)
+![screenshot](screenshot.png)
 
 ## 功能
 

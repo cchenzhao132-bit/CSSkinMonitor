@@ -6,7 +6,7 @@ A **zero-dependency, fully local** desktop app for monitoring CS2 (CS:GO) skin m
 
 > ⚠️ This project is not affiliated with Valve or Steam in any way. Data comes from public Steam Community Market pages and is for personal learning and price reference only — not trading advice.
 
-![screenshot](shot-v6-real-list.png)
+![screenshot](screenshot.png)
 
 ## Features
 
