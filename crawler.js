@@ -212,6 +212,42 @@ const silOf = (name, cat) => {
   return 'rifle';
 };
 
+// 武器前缀 → 分类（目录并集中无 type 字段的条目按名称推断）
+const WEAPON_CAT = {
+  'AK-47': 'rifle', 'M4A4': 'rifle', 'M4A1-S': 'rifle', 'AWP': 'sniper', 'USP-S': 'pistol',
+  'Desert Eagle': 'pistol', 'Glock-18': 'pistol', 'P250': 'pistol', 'P2000': 'pistol',
+  'Five-SeveN': 'pistol', 'Tec-9': 'pistol', 'CZ75-Auto': 'pistol', 'R8 Revolver': 'pistol',
+  'Dual Berettas': 'pistol', 'MP9': 'smg', 'MAC-10': 'smg', 'MP7': 'smg', 'MP5-SD': 'smg',
+  'UMP-45': 'smg', 'P90': 'smg', 'PP-Bizon': 'smg', 'Galil AR': 'rifle', 'FAMAS': 'rifle',
+  'SG 553': 'rifle', 'AUG': 'rifle', 'SSG 08': 'sniper', 'SCAR-20': 'sniper', 'G3SG1': 'sniper',
+  'Nova': 'shotgun', 'XM1014': 'shotgun', 'MAG-7': 'shotgun', 'Sawed-Off': 'shotgun',
+  'M249': 'mg', 'Negev': 'mg',
+  '★ Bayonet': 'knife', '★ M9 Bayonet': 'knife', '★ Karambit': 'knife', '★ Butterfly Knife': 'knife',
+  '★ Talon Knife': 'knife', '★ Skeleton Knife': 'knife', '★ Stiletto Knife': 'knife',
+  '★ Ursus Knife': 'knife', '★ Classic Knife': 'knife', '★ Nomad Knife': 'knife',
+  '★ Paracord Knife': 'knife', '★ Survival Knife': 'knife', '★ Flip Knife': 'knife',
+  '★ Huntsman Knife': 'knife', '★ Navaja Knife': 'knife', '★ Gut Knife': 'knife',
+  '★ Kukri Knife': 'knife', '★ Bowie Knife': 'knife', '★ Falchion Knife': 'knife',
+  '★ Shadow Daggers': 'knife'
+};
+// 无 type 信息时按名称推断分类
+function catFromName(name) {
+  if (/^Sticker \|/.test(name)) return 'sticker';
+  if (/^Sealed Graffiti |^Graffiti/.test(name)) return 'graffiti';
+  if (/Music Kit \||Music Kit$/.test(name)) return 'music';
+  if (/^Patch \|/.test(name)) return 'patch';
+  if (/Charm \|/.test(name)) return 'charm';
+  if (/ \| .*(Agent)$/.test(name) || /^Agent /.test(name)) return 'agent';
+  if (/Capsule/i.test(name)) return 'capsule';
+  if (/ Case | Case$|Package|Souvenir Package/.test(name)) return 'case';
+  for (const w in WEAPON_CAT) {
+    const prefix = name.replace(/^★ StatTrak™ |^StatTrak™ |^Souvenir /, '');
+    if (prefix === w || prefix.startsWith(w + ' |')) return WEAPON_CAT[w];
+  }
+  if (/^★ |Gloves/.test(name)) return /Gloves|Glove/.test(name) ? 'glove' : 'knife';
+  return 'misc';
+}
+
 // ---------- 磨损 / 版本解析 ----------
 const WEAR_RE = / \((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)$/;
 const WEAR_KEY = { 'Factory New': 'fn', 'Minimal Wear': 'mw', 'Field-Tested': 'ft', 'Well-Worn': 'ww', 'Battle-Scarred': 'bs' };
@@ -453,26 +489,50 @@ function buildWearDB(cache) {
     try { catalogItems = JSON.parse(fs.readFileSync(CATALOG_FILE, 'utf8')).items || {}; } catch (e) {}
   }
   const toCNY = usd => Math.round(usd * RATE_EXCHANGE * 100) / 100;
-  const RAW = entries.map((e, i) => {
-    const c = catalogItems[e.name];
-    const ref = c ? {
+  const refOf = c => {
+    if (!c) return null;
+    const ref = {
       ...(c.skinport && c.skinport.min > 0 ? { sp: toCNY(c.skinport.min) } : {}),
       ...(c.mcsgo && c.mcsgo.price > 0 ? { mc: toCNY(c.mcsgo.price) } : {}),
       ...(c.waxpeer && c.waxpeer.min > 0 ? { wx: toCNY(c.waxpeer.min) } : {})
-    } : null;
-    return {
-      id: i + 1,
-      name: e.name,
-      base: Math.round(e.usd * RATE_EXCHANGE * 100) / 100,   // 真实当前价（CNY）
-      rarity: (e.quality || qualityOf(e.type).key),
-      cat: e.cat || catOf(e.type, e.name),                   // 武器/收藏品分类
-      sil: silOf(e.name, e.cat || catOf(e.type, e.name)),
-      hot: e.seen === TODAY ? 1 : 0,                         // 热门池标记（榜单数据源）
-      ...(ref && Object.keys(ref).length ? { ref } : {}),    // 第三方参考价（可选）
-      icon: e.icon,
-      imgKey: md5(e.name)
     };
-  });
+    return Object.keys(ref).length ? ref : null;
+  };
+  const RAW = entries.map((e, i) => ({
+    id: i + 1,
+    name: e.name,
+    base: Math.round(e.usd * RATE_EXCHANGE * 100) / 100,   // 真实当前价（CNY）
+    rarity: (e.quality || qualityOf(e.type).key),
+    cat: e.cat || catOf(e.type, e.name),                   // 武器/收藏品分类
+    sil: silOf(e.name, e.cat || catOf(e.type, e.name)),
+    hot: e.seen === TODAY ? 1 : 0,                         // 热门池标记（榜单数据源）
+    ref: refOf(catalogItems[e.name]),                      // 第三方参考价（可选）
+    icon: e.icon,
+    imgKey: md5(e.name)
+  }));
+
+  // 目录并集中 Steam 尚未采集的条目：以第三方最低参考价占位入库（refOnly）
+  // 不进热门池/榜单；搜索可见并标注；深度爬取到同名条目后自动升级为正式 Steam 条目
+  const steamNames = new Set(entries.map(e => e.name));
+  for (const [name, c] of Object.entries(catalogItems)) {
+    if (steamNames.has(name)) continue;
+    const ref = refOf(c);
+    if (!ref) continue;
+    const cat = catFromName(name);
+    RAW.push({
+      name,
+      base: Math.min(ref.sp, ref.mc, ref.wx),
+      rarity: 'common',
+      cat,
+      sil: silOf(name, cat),
+      hot: 0,
+      ref,
+      refOnly: 1,
+      imgKey: md5(name)
+    });
+  }
+  RAW.sort((a, b) => b.base - a.base);
+  RAW.forEach((e, i) => { e.id = i + 1; });
   // 品质 key 白名单校验（engine RARITY 必须能命中）
   const RARITY_KEYS = new Set(['common', 'mil', 'restr', 'clsfd', 'covert', 'rare', 'contra']);
   for (const e of RAW) if (!RARITY_KEYS.has(e.rarity)) e.rarity = 'common';
@@ -502,8 +562,9 @@ function buildWearDB(cache) {
 
   // 5. 生成 data.js（RAW 区块 + 磨损价位库 + 真实历史 + 引擎模板）
   const rawJS = 'const RAW = ' + JSON.stringify(
-    RAW.map(({ id, name, base, rarity, cat, sil, hot, ref, image }) =>
-      ref ? { id, name, base, rarity, cat, sil, hot, ref, image }
+    RAW.map(({ id, name, base, rarity, cat, sil, hot, ref, refOnly, image }) =>
+      refOnly ? { id, name, base, rarity, cat, sil, ref, refOnly, image }
+        : ref ? { id, name, base, rarity, cat, sil, hot, ref, image }
           : (hot ? { id, name, base, rarity, cat, sil, hot, image } : { id, name, base, rarity, cat, sil, image })),
     null, 1
   ) + ';';

@@ -477,3 +477,6 @@ body {
 .ref-item .ref-price.ref-low { color: var(--down); }
 .ref-item .ref-price.ref-high { color: var(--up); }
 .ref-item .ref-delta { font-size: 10.5px; color: var(--text-faint); }
+
+/* 第三方参考价条目标签 */
+.tag.ref-tag { color: #e4ae39; border-color: rgba(228, 174, 57, 0.5); background: rgba(228, 174, 57, 0.08); }

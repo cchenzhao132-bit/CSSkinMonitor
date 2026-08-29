@@ -329,7 +329,9 @@
           <div class="item-name">${nameHtml}</div>
           <div class="item-tags">
             <span class="tag cat">${item.catName}</span>
-            <span class="tag rarity" style="--rc:${item.rarityColor}">${item.rarityName}</span>
+            ${item.refOnly
+              ? '<span class="tag ref-tag">第三方参考价</span>'
+              : `<span class="tag rarity" style="--rc:${item.rarityColor}">${item.rarityName}</span>`}
             <span class="tag wear">${wearOf(item.name) || '无磨损'}</span>
           </div>
         </div>
@@ -425,7 +427,7 @@
       ['Waxpeer 最低', item.ref.wx]
     ].filter(r => r[1] != null);
     if (!rows.length) return '';
-    const steamP = item.currentPrice;
+    const steamP = item.refOnly ? 0 : item.currentPrice;   // refOnly 无 Steam 挂牌价，不比差值
     const sameMarket = r => r[1] > 0 ? (r[1] <= steamP ? 'ref-low' : 'ref-high') : '';
     return `
       <section class="chart-card ref-card">
@@ -435,12 +437,15 @@
           </div>
         </div>
         <div class="ref-grid">
-          ${rows.map(r => `
+          ${rows.map(r => {
+            const delta = steamP > 0 ? `<span class="ref-delta">${r[1] <= steamP ? '低于 Steam ' : '高于 Steam '}${Math.abs((r[1] / steamP - 1) * 100).toFixed(0)}%</span>` : '';
+            return `
             <div class="ref-item">
               <span class="ref-name">${r[0]}</span>
               <span class="ref-price ${sameMarket(r)}">${fmt(r[1])}</span>
-              <span class="ref-delta">${r[1] <= steamP ? '低于 Steam ' : '高于 Steam '}${Math.abs((r[1] / steamP - 1) * 100).toFixed(0)}%</span>
-            </div>`).join('')}
+              ${delta}
+            </div>`;
+          }).join('')}
         </div>
       </section>`;
   }
@@ -468,7 +473,9 @@
           <h2>${esc(parts.weapon)} <span style="color:${item.rarityColor}">| ${esc(parts.paint)}</span></h2>
           <div class="item-tags">
             <span class="tag cat">${item.catName}</span>
-            <span class="tag rarity" style="--rc:${item.rarityColor}">${item.rarityName}</span>
+            ${item.refOnly
+              ? '<span class="tag ref-tag">第三方参考价</span>'
+              : `<span class="tag rarity" style="--rc:${item.rarityColor}">${item.rarityName}</span>`}
             <span class="tag wear">${wearOf(item.name) || '原版'}</span>
           </div>
           <div class="detail-quick">
@@ -488,9 +495,9 @@
         </div>
         <div class="pcard p-main">
           <span class="pc-emoji">⚡</span>
-          <div class="pc-label">当前价格</div>
+          <div class="pc-label">${item.refOnly ? '第三方参考价（Steam 未采集）' : '当前价格'}</div>
           <div class="pc-value">${fmt(item.currentPrice)}</div>
-          <div class="pc-sub">7日前 ${fmt(item.previousPrice)} · <span class="${up ? 'up-c' : 'down-c'}">${up ? '+' : ''}${fmtSign(item.changeAmount)}</span></div>
+          <div class="pc-sub">${item.refOnly ? '来自第三方现货市场 · 深度爬取后升级为 Steam 挂牌价' : `7日前 ${fmt(item.previousPrice)} · <span class="${up ? 'up-c' : 'down-c'}">${up ? '+' : ''}${fmtSign(item.changeAmount)}</span>`}</div>
         </div>
         <div class="pcard p-high">
           <span class="pc-emoji">📈</span>
