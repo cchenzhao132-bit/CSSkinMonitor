@@ -75,8 +75,11 @@ def _refresh_worker():
         env = dict(os.environ, CS_SKIN_HOME=home_dir())
         script = resource_path('crawler.js')
         # 应用内刷新走快速路径：跳过图片本地化（运行时 Steam CDN 兜底）
+        # CREATE_NO_WINDOW：node 是控制台程序，不隐藏会每次刷新弹黑色 cmd 窗口
+        flags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
         r = subprocess.run([node, script, '--offline-img', '0'], cwd=home_dir(), env=env, timeout=1500,
-                           capture_output=True, text=True, encoding='utf-8', errors='replace')
+                           capture_output=True, text=True, encoding='utf-8', errors='replace',
+                           creationflags=flags)
         if r.returncode != 0:
             raise RuntimeError((r.stdout or '')[-300:] + ' | ' + (r.stderr or '')[-200:])
         src = os.path.join(home_dir(), 'app', 'data.js')
