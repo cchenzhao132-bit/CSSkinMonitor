@@ -159,6 +159,11 @@
     const m = name.match(/\((.+)\)$/);
     return m ? m[1] : '';
   }
+  // 磨损中文名（英文磨损名 → 中文；无匹配时回退原文）
+  function wearCnOf(name) {
+    const en = wearOf(name);
+    return WEAR_EN_KEY[en] ? WEAR_ZH[WEAR_EN_KEY[en]] : (en || '');
+  }
   // 从名称中拆出武器名 / 涂装名
   function splitName(name) {
     const noWear = name.replace(/\s*\(.+\)$/, '');
@@ -902,7 +907,7 @@
             ${item.refOnly
               ? '<span class="tag ref-tag">第三方参考价</span>'
               : `<span class="tag rarity" style="--rc:${item.rarityColor}">${item.rarityName}</span>`}
-            <span class="tag wear">${wearOf(item.name) || '无磨损'}</span>
+            <span class="tag wear">${wearCnOf(item.name) || '无磨损'}</span>
           </div>
         </div>
         <div class="item-nums">
@@ -1051,7 +1056,7 @@
             ${item.refOnly
               ? '<span class="tag ref-tag">第三方参考价</span>'
               : `<span class="tag rarity" style="--rc:${item.rarityColor}">${item.rarityName}</span>`}
-            <span class="tag wear">${wearOf(item.name) || '原版'}</span>
+            <span class="tag wear">${wearCnOf(item.name) || '原版'}</span>
             ${item.changeClass !== 'none' ? `<span class="tag chg-tag chg-tag-${item.changeClass}">7日${CHG_NAME[item.changeClass]}</span>` : ''}
           </div>
           <div class="detail-quick">
