@@ -24,6 +24,7 @@
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
         <span class="back-badge" id="backBadge"></span>
       </button>
+      <button class="topbar-fav" id="refreshBtn" title="手动刷新最新行情（30 分钟冷却）">⟳</button>
       <button class="topbar-fav" id="alchBtn" title="炼金模拟器">⚗</button>
       <button class="topbar-fav" id="favBtn" title="我的收藏">☆</button>
       <div class="search-box">
@@ -42,7 +43,7 @@
 
 <footer class="footer">
   当前价与各版本磨损挂牌价来自 Steam 社区市场 · 价格历史为每日真实快照逐步积累（不足 8 天的部分为模拟演示）<br>
-  涨跌周期：较 7 日前 · 红涨绿跌，遵循国内市场习惯 · 更新于 2026-08-29
+  涨跌周期：较 7 日前 · 红涨绿跌，遵循国内市场习惯 · 更新于 2026-08-29 · <span id="dataAge"></span>
 </footer>
 
 <script src="echarts.min.js"></script>

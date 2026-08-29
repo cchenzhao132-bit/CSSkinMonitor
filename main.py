@@ -5,7 +5,10 @@ CS 饰品市场监测 - 桌面应用入口
 import json
 import os
 import shutil
+import subprocess
 import sys
+import threading
+import time
 import webview
 
 # 定位资源目录：PyInstaller --onefile 解包到 sys._MEIPASS；开发期用 __file__ 邻近
@@ -36,6 +39,56 @@ def base_dir():
         else os.path.dirname(os.path.abspath(__file__))
 
 
+# ---------- 行情刷新服务（应用内手动/自动刷新） ----------
+# 合规控制：手动刷新冷却 30 分钟；启动自动刷新仅在数据落后 2 小时以上；
+# 爬虫内部固定 3.5s/请求并遵循 robots.txt；运行中拒绝重复触发。
+REFRESH_COOLDOWN = 30 * 60
+AUTO_STALE_SEC = 2 * 3600
+_refresh_state = {'running': False, 'error': None, 'done': 0.0}
+_refresh_lock = threading.Lock()
+
+
+def home_dir():
+    """刷新运行的数据目录：缓存/快照在此持久积累（跨刷新、跨重启）"""
+    base = os.environ.get('LOCALAPPDATA') or os.environ.get('APPDATA') or base_dir()
+    d = os.path.join(base, 'CSSkinMonitor')
+    os.makedirs(os.path.join(d, 'cache'), exist_ok=True)
+    return d
+
+
+def data_mtime():
+    p = os.path.join(base_dir(), 'data.js')
+    return os.path.getmtime(p) if os.path.isfile(p) else 0.0
+
+
+def _find_node():
+    return shutil.which('node')
+
+
+def _refresh_worker():
+    _refresh_state['running'] = True
+    _refresh_state['error'] = None
+    try:
+        node = _find_node()
+        if not node:
+            raise RuntimeError('未检测到 Node.js（应用内刷新需要）')
+        env = dict(os.environ, CS_SKIN_HOME=home_dir())
+        script = resource_path('crawler.js')
+        # 应用内刷新走快速路径：跳过图片本地化（运行时 Steam CDN 兜底）
+        r = subprocess.run([node, script, '--offline-img', '0'], cwd=home_dir(), env=env, timeout=1500,
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if r.returncode != 0:
+            raise RuntimeError((r.stdout or '')[-300:] + ' | ' + (r.stderr or '')[-200:])
+        src = os.path.join(home_dir(), 'app', 'data.js')
+        if os.path.isfile(src):
+            shutil.copyfile(src, os.path.join(base_dir(), 'data.js'))
+        _refresh_state['done'] = time.time()
+    except Exception as e:
+        _refresh_state['error'] = str(e)
+    finally:
+        _refresh_state['running'] = False
+
+
 class JsApi:
     """JS 桥：收藏持久化。WebView2 对 file:// 来源的 localStorage 不可靠，
     收藏统一落盘 exe 同目录 favorites.json，随用户自由备份。"""
@@ -61,6 +114,31 @@ class JsApi:
         except Exception as e:
             print('save favorites failed:', e, flush=True)
             return 'error'
+
+    def refresh_status(self):
+        mt = data_mtime()
+        age = int(time.time() - mt) if mt else -1
+        return json.dumps({
+            'running': _refresh_state['running'],
+            'error': _refresh_state['error'],
+            'lastDone': _refresh_state['done'],
+            'dataAgeSec': age,
+            'cooldownLeft': max(0, int(REFRESH_COOLDOWN - age)) if mt else 0,
+            'autoStaleSec': AUTO_STALE_SEC,
+        }, ensure_ascii=False)
+
+    def start_refresh(self):
+        with _refresh_lock:
+            if _refresh_state['running']:
+                return json.dumps({'ok': False, 'reason': 'running'})
+            mt = data_mtime()
+            if mt and time.time() - mt < REFRESH_COOLDOWN:
+                return json.dumps({'ok': False, 'reason': 'cooldown',
+                                   'left': int(REFRESH_COOLDOWN - (time.time() - mt))})
+            if not _find_node():
+                return json.dumps({'ok': False, 'reason': 'node_missing'})
+            threading.Thread(target=_refresh_worker, daemon=True).start()
+            return json.dumps({'ok': True})
 
 
 def main():

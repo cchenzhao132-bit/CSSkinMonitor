@@ -30,7 +30,7 @@ const fs = require('fs');
 const path = require('path');
 const sources = require('./sources');
 
-const ROOT = __dirname;
+const ROOT = process.env.CS_SKIN_HOME || __dirname;   // 数据根目录（桌面应用通过环境变量指定 %LOCALAPPDATA% 数据目录）
 const APP = path.join(ROOT, 'app');
 const CACHE_DIR = path.join(ROOT, 'cache');
 const CACHE_FILE = path.join(CACHE_DIR, 'crawler-cache.json');
@@ -667,7 +667,7 @@ function buildWearDB(cache) {
     try { tradeJS = 'const TRADEUP = ' + fs.readFileSync(TRADEUP_FILE, 'utf8') + ';\n'; } catch (e) {}
   }
 
-  const engineJS = fs.readFileSync(path.join(ROOT, 'crawler-templates', 'engine.js'), 'utf8');
+  const engineJS = fs.readFileSync(path.join(__dirname, 'crawler-templates', 'engine.js'), 'utf8');
 
   const data = `/* =====================================================================
  * CS 饰品市场监测 - 数据文件（crawler.js 自动生成，请勿手改）

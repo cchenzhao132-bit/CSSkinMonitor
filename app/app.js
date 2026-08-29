@@ -58,6 +58,94 @@
   }
   if (window.pywebview && window.pywebview.api && window.pywebview.api.load_favorites) initFavsFromBridge();
   else window.addEventListener('pywebviewready', initFavsFromBridge);
+
+  // ---------- 数据刷新（桌面版：JS 桥触发爬虫；30 分钟冷却 / 启动落后 2h 自动刷新，Python 侧强制） ----------
+  let refreshPoll = null;
+  const fmtAge = s => s < 0 ? '未知' : s < 60 ? '刚刚' : s < 3600 ? Math.floor(s / 60) + ' 分钟前' : s < 86400 ? Math.floor(s / 3600) + ' 小时前' : Math.floor(s / 86400) + ' 天前';
+  function updateDataAge(sec) {
+    const el = $('#dataAge');
+    if (el) el.textContent = sec < 0 ? '' : `数据更新于 ${fmtAge(sec)}`;
+  }
+  function showRefreshToast(html) {
+    let t = $('#refreshToast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'refreshToast';
+      t.className = 'loading-toast';
+      document.body.appendChild(t);
+    }
+    t.innerHTML = `<span class="spinner"></span> ${html}`;
+    const rb = $('#refreshBtn');
+    if (rb) rb.classList.add('spinning');
+  }
+  function hideRefreshToast() {
+    const t = $('#refreshToast');
+    if (t) t.remove();
+    const rb = $('#refreshBtn');
+    if (rb) rb.classList.remove('spinning');
+  }
+  function flashToast(text, ms) {
+    const t = document.createElement('div');
+    t.className = 'loading-toast';
+    t.textContent = text;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), ms || 5000);
+  }
+  function pollRefresh() {
+    if (refreshPoll) clearInterval(refreshPoll);
+    refreshPoll = setInterval(async () => {
+      const api = window.pywebview && window.pywebview.api;
+      if (!api || !api.refresh_status) return;
+      let st;
+      try { st = JSON.parse(await api.refresh_status()); } catch (e) { return; }
+      updateDataAge(st.dataAgeSec);
+      if (!st.running) {
+        clearInterval(refreshPoll); refreshPoll = null;
+        hideRefreshToast();
+        if (st.error) flashToast('刷新失败：' + st.error.slice(-80), 6000);
+        else {
+          flashToast('行情已更新，正在载入新数据…', 1500);
+          setTimeout(() => { location.href = location.pathname + '?t=' + Date.now() + (location.hash || '#/up'); }, 1000);
+        }
+      }
+    }, 4000);
+  }
+  async function manualRefresh() {
+    const api = window.pywebview && window.pywebview.api;
+    if (!api || !api.start_refresh) { flashToast('网页预览模式不支持应用内刷新', 4000); return; }
+    let st;
+    try { st = JSON.parse(await api.start_refresh()); } catch (e) { return; }
+    if (!st.ok) {
+      flashToast(st.reason === 'cooldown'
+        ? `刷新冷却中：数据 ${fmtAge(st.left)}前已更新，${Math.ceil(st.left / 60)} 分钟后可再次手动刷新（合规限流）`
+        : st.reason === 'running' ? '刷新已在进行中…'
+        : st.reason === 'node_missing' ? '未检测到 Node.js，无法在应用内刷新'
+        : '暂时无法刷新', 5000);
+      return;
+    }
+    showRefreshToast('正在刷新最新行情…（Steam 热门池，约 2 分钟 · 已限流）');
+    pollRefresh();
+  }
+  async function startupDataCheck() {
+    const api = window.pywebview && window.pywebview.api;
+    const rb = $('#refreshBtn');
+    if (rb) rb.addEventListener('click', manualRefresh);
+    if (!api || !api.refresh_status) { if (rb) rb.title = '网页预览模式不支持刷新'; return; }
+    let st;
+    try { st = JSON.parse(await api.refresh_status()); } catch (e) { return; }
+    updateDataAge(st.dataAgeSec);
+    if (st.running) { showRefreshToast('正在刷新最新行情…'); pollRefresh(); return; }
+    if (st.dataAgeSec >= st.autoStaleSec) {
+      let r;
+      try { r = JSON.parse(await api.start_refresh()); } catch (e) { return; }
+      if (r.ok) {
+        showRefreshToast(`数据已落后 ${fmtAge(st.dataAgeSec)}，正在自动刷新最新行情…（约 2 分钟，已限流）`);
+        pollRefresh();
+      }
+    }
+  }
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.refresh_status) startupDataCheck();
+  else window.addEventListener('pywebviewready', startupDataCheck);
   const isFav = name => !!FAVS[name];
   function toggleFav(name) {
     if (FAVS[name]) delete FAVS[name]; else FAVS[name] = Date.now();
