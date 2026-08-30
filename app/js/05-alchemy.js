@@ -23,6 +23,10 @@
   const WEAR_MID = { fn: 0.035, mw: 0.11, ft: 0.265, ww: 0.415, bs: 0.725 };
   const BANDS = [['fn', 0, 0.07], ['mw', 0.07, 0.15], ['ft', 0.15, 0.38], ['ww', 0.38, 0.45], ['bs', 0.45, 1]];
   const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  // 归一化浮动（2024-10 Retakes 更新后的游戏规则）：每个输入先按自身磨损范围映射到 0-1，
+  // 平均后再映射到产出皮肤的范围。旧版直接平均原始浮动，在混合不同磨损范围皮肤时全错
+  // （如范围 0-0.4 的皮肤浮动 0.30，归一化后按 0.75 计入，而非 0.30）
+  const normAdj = (fl, f) => { const span = f[1] - f[0]; return span > 0 ? clampF((fl - f[0]) / span, 0, 1) : 0; };
   const NEXT_TIER = { mil: 'restr', restr: 'clsfd', clsfd: 'cov', cov: 'gold' };
   let alchFloats = null;   // enName → [min,max]
   function alchFloatMap() {
@@ -47,7 +51,10 @@
         if (Math.max(b[1], p.f[0]) < Math.min(b[2], p.f[1])) {
           totalV++;
           const pr = alchPrice(p.n, b[0], st);
-          if (pr) variants.push({ n: p.n, cn: p.cn || p.n, band: b[0], float: clampF(WEAR_MID[b[0]], p.f[0], p.f[1]), price: pr.price });
+          if (pr) {
+            const fl = clampF(WEAR_MID[b[0]], p.f[0], p.f[1]);
+            variants.push({ n: p.n, cn: p.cn || p.n, band: b[0], float: fl, adj: normAdj(fl, p.f), price: pr.price });
+          }
         }
       });
     });
@@ -71,9 +78,10 @@
       }
       return ev;
     };
-    // DP：dp[k][b] = 前 k 件、浮动和落在桶 b 的最低成本（桶步长 0.05，和上限 10）
+    // DP：dp[k][b] = 前 k 件、归一化浮动和落在桶 b 的最低成本（桶步长 0.05，和上限 10）
+    // 桶轴 = 归一化值（游戏按此平均），不是原始浮动
     const STEP = 0.05, NB = 201;
-    const vrb = variants.map(v => ({ ...v, rb: Math.max(1, Math.round(v.float / STEP)) }));
+    const vrb = variants.map(v => ({ ...v, rb: Math.max(1, Math.round(v.adj / STEP)) }));
     const dp = Array.from({ length: 11 }, () => Array(NB).fill(null));
     dp[0][0] = { c: 0, prev: null };
     for (let k = 1; k <= 10; k++) {
@@ -102,9 +110,10 @@
     };
     const evalB = b => {
       if (!dp[10][b]) return null;
-      const ev = evOfAvg(b * STEP / 10);
+      const avg = b * STEP / 10;   // 归一化平均浮动（游戏语义）
+      const ev = evOfAvg(avg);
       if (ev === null) return null;   // 该浮动下产出有缺价 → EV 不可信
-      const avg = b * STEP / 10, cost = dp[10][b].c;
+      const cost = dp[10][b].c;
       // 与主面板同口径：卖方所得 = 挂牌价 ÷ (1+费率)
       return { avg, cost, ev, net: ev / (1 + fee / 100) - cost, recipe: mkRecipe(b) };
     };
@@ -140,10 +149,12 @@
     if (A.crate == null || A.crate >= crates.length) A.crate = 0;
     const crate = crates[A.crate];
     const is5 = A.mode === '5';
-    // 切换集合后当前档位可能不存在（如纪念包缺档位/无金池）→ 自动回退到首个有效档位
+    // 10:1 常规链条只到 保密→隐秘；隐秘→金色 只有 5:1 合同（2025-10 规则），无 10:1 版本
+    const TIERS10 = ['mil', 'restr', 'clsfd'];
+    // 切换集合后当前档位可能不存在（如纪念包缺档位）→ 自动回退到首个有效档位
     if (!is5) {
-      const tierOk = t => (crate.t[t] || []).length && (t !== 'cov' || (crate.gold || []).length);
-      if (!tierOk(A.tier)) A.tier = ['mil', 'restr', 'clsfd', 'cov'].find(tierOk) || 'mil';
+      const tierOk = t => (crate.t[t] || []).length;
+      if (!tierOk(A.tier) || !TIERS10.includes(A.tier)) A.tier = TIERS10.find(tierOk) || 'mil';
     }
     const tier = is5 ? 'cov' : A.tier;
     const nSlots = is5 ? 5 : 10;
@@ -197,6 +208,9 @@
     };
 
     const avgF = A.slots.reduce((s, x) => s + (+x.float || 0), 0) / (A.slots.length || 1);
+    // 归一化平均（2024-10 规则）：每个槽位按自身皮肤磨损范围映射 0-1 后取平均
+    const slotFRange = s => (alchFloatMap()[resolveN(s.name)] || [0, 1]);
+    const avgAdj = A.slots.reduce((s, x) => s + normAdj(+x.float || 0, slotFRange(x)), 0) / (A.slots.length || 1);
     let cost = 0, costUnknown = 0;
     A.slots.forEach(s => {
       const p = slotPrice(s);
@@ -207,7 +221,9 @@
       const groups = {};
       A.slots.forEach(s => { if (s.name) (groups[s.ci] = groups[s.ci] || []).push(s); });
       for (const ci in groups) {
-        const g = crates[ci].gold || [];
+        let g = crates[ci].gold || [];
+        // StatTrak 5:1 合同只出 StatTrak 刀（ST 手套不存在）→ ST 模式下手套整个移出产出池
+        if (A.st) g = g.filter(o => !/Gloves|Glove/.test(o.n));
         if (!g.length) continue;
         const w = groups[ci].length / 5;
         g.forEach(o => outcomes.push({ name: o.n, cn: o.cn, f: o.f, prob: w / g.length }));
@@ -218,7 +234,7 @@
       outcomes = outPool.map(o => ({ name: o.n, cn: o.cn, f: o.f, prob: 1 / outPool.length }));
     }
     const rows = outcomes.map(o => {
-      const outF = o.f[0] + avgF * (o.f[1] - o.f[0]);
+      const outF = o.f[0] + avgAdj * (o.f[1] - o.f[0]);   // 归一化均值映射到产出皮肤范围
       const w = wearBandOf(outF);
       const gloves = /Gloves|Glove/.test(o.name);
       const st = A.st && !gloves;
@@ -251,7 +267,7 @@
           const recipe = r.recipe.map(x => `${x.count}× ${esc(x.cn)}（${WEAR_ZH[x.band]}）`).join(' + ');
           return `<div class="alch-ext ${cls || ''}">
             <div class="alch-ext-title">${title}</div>
-            <div class="alch-ext-num">平均浮动 ${r.avg.toFixed(3)} · 成本 ${fmt(r.cost)} · EV ${fmt(r.ev)} · <b class="${r.net > 0 ? 'up-c' : 'down-c'}">${fmtSigned(r.net)}</b></div>
+            <div class="alch-ext-num">归一化均值 ${r.avg.toFixed(3)} · 成本 ${fmt(r.cost)} · EV ${fmt(r.ev)} · <b class="${r.net > 0 ? 'up-c' : 'down-c'}">${fmtSigned(r.net)}</b></div>
             <div class="alch-ext-recipe">${recipe}</div>
           </div>`;
         };
@@ -267,7 +283,7 @@
               ${card('产出浮动最小', opt.minF)}
               ${card('产出浮动最大', opt.maxF)}
             </div>
-            <div class="wear-hint" style="padding:0 12px 10px">产出浮动最小/最大 = 可实现的最低/最高平均输入浮动；最赚/最赔 = 该浮动水平下成本最低配方的净收益。产出存在缺价时该浮动段不参与（缺价按 0 计会低估 EV）。当所有配方净收益为负，「亏得最少」仅是损失最小的选择，不代表能盈利。</div>
+            <div class="wear-hint" style="padding:0 12px 10px">归一化均值 = 每个输入按自身磨损范围映射 0-1 后的平均值（2024-10 规则）；产出浮动最小/最大 = 可实现的最低/最高归一化均值；最赚/最赔 = 该水平下成本最低配方的净收益。产出存在缺价时该浮动段不参与（缺价按 0 计会低估 EV）。当所有配方净收益为负，「亏得最少」仅是损失最小的选择，不代表能盈利。</div>
           </section>`;
       }
     }
@@ -278,7 +294,7 @@
     if (SCAN) {
       const scanTable = (list, rowCls) => `
         <table class="wear-table alch-scan-table">
-          <thead><tr><th>#</th><th>集合 / 路线</th><th>平均浮动</th><th>成本</th><th>EV</th><th>净收益</th><th>ROI</th></tr></thead>
+          <thead><tr><th>#</th><th>集合 / 路线</th><th>归一化均值</th><th>成本</th><th>EV</th><th>净收益</th><th>ROI</th></tr></thead>
           <tbody>
             ${list.map((r, i) => `
               <tr class="alch-scan-row ${rowCls}" data-crate="${esc(r.crate)}" data-tier="${r.tier}" data-st="${r.st ? 1 : 0}" title="点击载入模拟器细调">
@@ -295,7 +311,7 @@
       scanHtml = `
         <section class="chart-card alch-scan">
           <div class="chart-head"><div class="chart-title"><span class="dot dot-ref"></span>今日炼金雷达
-            <span class="wear-hint">${SCAN.updatedAt} · 扫描 ${SCAN.combos} 个 集合×档位 组合 · 净收益已含 15% 市场费 · 挂牌价口径（天价挂牌会虚高 EV，入场前请核实成交）· 点击行载入模拟器</span></div></div>
+            <span class="wear-hint">${SCAN.updatedAt} · 扫描 ${SCAN.combos} 个 集合×档位 组合 · 净收益已含 15% 市场费 · 挂牌价口径（天价挂牌会虚高 EV，入场前请核实成交）· 纪念收藏按普通（非纪念品）版本计价，Souvenir 皮肤不可汰换 · 点击行载入模拟器</span></div></div>
           <div class="alch-scan-grid">
             <div><div class="alch-scan-title up-c">▲ 最赚配方 Top ${SCAN.best.length}</div>${scanTable(SCAN.best, 'alch-scan-best')}</div>
             <div><div class="alch-scan-title down-c">▼ 最赔配方 Top ${SCAN.worst.length}</div>${scanTable(SCAN.worst, 'alch-scan-worst')}</div>
@@ -306,9 +322,10 @@
     app.innerHTML = `
       <div class="back-bar">
         <button class="back-btn" id="alchBackBtn">← 返回榜单</button>
-        <span style="font-size:12px;color:var(--text-faint)">炼金模拟器 · 规则：2025-10 更新（10:1 普通 / 5:1 隐秘→刀手套）· 集合数据：游戏文件公开镜像</span>
+        <span style="font-size:12px;color:var(--text-faint)">炼金模拟器 · 规则：2024-10 归一化浮动 + 2025-10 扩展（10:1 普通至 保密→隐秘 / 5:1 隐秘→刀手套）· 集合数据：游戏文件公开镜像</span>
       </div>
       ${scanHtml}
+      ${/Souvenir/.test(crate.name) ? `<div class="alch-svn-warn">⚠ 纪念品（Souvenir）皮肤<strong>不能</strong>作为汰换合同输入（Valve 规则）。本页按同收藏品的<strong>普通（非纪念品）版本</strong>价格计算——实际买入时务必确认不是 Souvenir 前缀的纪念品。</div>` : ''}
       <section class="chart-card alch-panel">
         <div class="alch-row">
           <div class="alch-seg">
@@ -316,23 +333,23 @@
             <button class="chip ${A.mode === '5' ? 'active' : ''}" data-mode="5">5:1 刀具/手套</button>
           </div>
           <select class="alch-crate-main" id="alchCrate">${crates.map((c, ci) => `<option value="${ci}" ${A.crate === ci ? 'selected' : ''}>${esc(c.cn || c.name)}</option>`).join('')}</select>
-          ${is5 ? '' : `<div class="alch-seg">${['mil', 'restr', 'clsfd', 'cov'].map(t => {
-            const ok = (crate.t[t] || []).length && (t !== 'cov' || (crate.gold || []).length);
-            return `<button class="chip ${A.tier === t ? 'active' : ''}" data-tier="${t}" ${ok ? '' : 'disabled title="该集合无此档位或金池"'}>${{ mil: '军规→受限', restr: '受限→保密', clsfd: '保密→隐秘', cov: '隐秘→金色' }[t]}</button>`;
+          ${is5 ? '' : `<div class="alch-seg">${TIERS10.map(t => {
+            const ok = (crate.t[t] || []).length;
+            return `<button class="chip ${A.tier === t ? 'active' : ''}" data-tier="${t}" ${ok ? '' : 'disabled title="该集合无此档位"'}>${{ mil: '军规→受限', restr: '受限→保密', clsfd: '保密→隐秘' }[t]}</button>`;
           }).join('')}</div>`}
         </div>
         <div class="alch-row alch-opts">
           <label class="alch-opt"><input type="checkbox" id="alchST" ${A.st ? 'checked' : ''}> StatTrak 模式（须全 ST 输入 → ST 产出；手套除外）</label>
           <label class="alch-opt"><input type="checkbox" id="alchFee" ${A.feeOn ? 'checked' : ''}> 计入市场费</label>
           <input class="alch-feepct" id="alchFeePct" type="number" min="0" max="30" step="0.5" value="${A.feePct}" title="Steam 卖出综合费率（挂牌价 ÷ (1+费率) 为实际到手）">%
-          <span class="wear-hint">产出浮动 = min + 平均输入浮动 × (max − min) · 磨损档默认档位中值，可手动改 · 每槽 ✎ 可手动输入皮肤与单价</span>
+          <span class="wear-hint">产出浮动 = 产出min + 归一化均值 × (产出max − min)，归一化 = 每个输入按自身磨损范围映射 0-1 再平均（2024-10 规则）· 磨损档默认档位中值，可手动改 · 每槽 ✎ 可手动输入皮肤与单价</span>
         </div>
         <div class="alch-slots" id="alchWrap">${A.slots.map((s, i) => slotHtml(s, i)).join('')}</div>
         <datalist id="alchDl">${crates.flatMap(c => [...Object.values(c.t).flat(), ...(c.gold || [])]).map(e => `<option value="${esc(e.n)}">${esc(e.cn || e.n)}</option>`).join('')}</datalist>
       </section>
       <section class="alch-summary">
         <div class="stat-card"><span class="stat-label">输入成本（${nSlots} 件${costUnknown ? ` · ${costUnknown} 件无价未计入` : ''}）</span><span class="stat-value">${fmt(cost)}</span></div>
-        <div class="stat-card"><span class="stat-label">平均输入浮动</span><span class="stat-value">${avgF.toFixed(4)}</span></div>
+        <div class="stat-card"><span class="stat-label">平均输入浮动（归一化）</span><span class="stat-value">${avgF.toFixed(4)}（${avgAdj.toFixed(3)}）</span></div>
         <div class="stat-card"><span class="stat-label">期望产出 EV${evPartial ? '（部分产出缺价·低估）' : ''}</span><span class="stat-value">${fmt(ev)}</span></div>
         <div class="stat-card"><span class="stat-label">净收益 ${A.feeOn ? `（含 ${A.feePct}% 费）` : ''}</span><span class="stat-value ${netTrusted ? (net > 0 ? 'up-c' : 'down-c') : ''}">${netTrusted ? `${fmtSigned(net)}（${roi.toFixed(1)}%）` : `—（${costUnknown} 件槽位无价，净收益不可信）`}</span></div>
       </section>

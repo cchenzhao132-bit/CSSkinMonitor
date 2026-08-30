@@ -45,11 +45,12 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
   const results = [];
   let combos = 0, skipped = 0;
+  // 10:1 常规链条只到 保密→隐秘；隐秘→金色 只有 5:1 合同（2025-10 规则），10:1 版本不存在，不扫描
   for (const crate of trade.crates) {
-    for (const tier of ['mil', 'restr', 'clsfd', 'cov']) {
+    for (const tier of ['mil', 'restr', 'clsfd']) {
       const pool = crate.t[tier] || [];
       const nextKey = NEXT_TIER[tier];
-      const outPool = nextKey === 'gold' ? (crate.gold || []) : (crate.t[nextKey] || []);
+      const outPool = crate.t[nextKey] || [];
       if (!pool.length || !outPool.length) continue;              // 与前端模拟器一致：单皮肤池也参与（10× 同款合法）
 
       for (const st of [false, true]) {
@@ -58,7 +59,13 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
           BANDS.forEach(b => {
             if (Math.max(b[1], p.f[0]) < Math.min(b[2], p.f[1])) {
               const pr = priceOf(p.n, b[0], st);
-              if (pr) variants.push({ n: p.n, cn: p.cn || p.n, band: b[0], float: clampF(WEAR_MID[b[0]], p.f[0], p.f[1]), price: pr.price, src: pr.src, rb: Math.max(1, Math.round(clampF(WEAR_MID[b[0]], p.f[0], p.f[1]) / 0.05)) });
+              if (pr) {
+                const fl = clampF(WEAR_MID[b[0]], p.f[0], p.f[1]);
+                // 归一化浮动（2024-10 Retakes 规则）：按自身磨损范围映射 0-1；DP 桶轴用归一化值
+                const span = p.f[1] - p.f[0];
+                const adj = span > 0 ? clampF((fl - p.f[0]) / span, 0, 1) : 0;
+                variants.push({ n: p.n, cn: p.cn || p.n, band: b[0], float: fl, adj, price: pr.price, src: pr.src, rb: Math.max(1, Math.round(adj / 0.05)) });
+              }
             }
           });
         }
@@ -105,6 +112,7 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
         };
         // 全桶扫描最优：同一磨损段内 EV 不变、成本随浮动连续下降，最优在段高端——
         // 旧版只扫段中点，会把转正的最优配方整个漏掉（与前端 alchOptimize 同口径）
+        // avg = 归一化平均浮动（2024-10 规则），evOfAvg 将其映射到产出皮肤范围
         let best = null;
         for (let b = 0; b < NB; b++) {
           if (!dp[10][b]) continue;

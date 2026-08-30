@@ -49,10 +49,35 @@ const alchSrc = fs.readFileSync(path.join(PROJ, 'app', 'js', '05-alchemy.js'), '
 const segStart = alchSrc.indexOf('let alchIdx');
 const segEnd = alchSrc.indexOf('function renderAlchemy');
 if (segStart < 0 || segEnd < 0) { console.error('无法抽取 05-alchemy.js 函数段'); process.exit(1); }
-vm.runInThisContext(alchSrc.slice(segStart, segEnd) + '\n;globalThis.__opt = alchOptimize;', { filename: '05-alchemy.js' });
-const alchOptimize = globalThis.__opt;
+vm.runInThisContext(alchSrc.slice(segStart, segEnd) + '\n;globalThis.__opt = alchOptimize; globalThis.__normAdj = normAdj; globalThis.__wearBandOf = wearBandOf;', { filename: '05-alchemy.js' });
+const alchOptimize = globalThis.__opt, normAdj = globalThis.__normAdj, wearBandOf = globalThis.__wearBandOf;
 
 console.log(`数据：ALL_ITEMS ${ALL_ITEMS.length} 件 · TRADEUP 集合 ${TRADEUP.crates.length} 个`);
+
+// ---------- 0) 归一化浮动公式（2024-10 Retakes 规则）标准向量 ----------
+console.log('\n[0] 归一化浮动公式（2024-10 规则）');
+{
+  const eps = 1e-9, near = (a, b) => Math.abs(a - b) < eps;
+  const cases = [
+    // [输入浮动, 皮肤范围, 期望归一化值, 出处]
+    [0.05, [0, 0.4], 0.125, 'take.skin 例：P250 Supernova 0.05（范围0-0.4）→ 12.5%'],
+    [0.30, [0, 0.4], 0.75, 'money4gamers 例：0.30 在 0-0.4  capped 皮肤 → 0.75（filler 策略失效）'],
+    [0.05, [0, 1], 0.05, '全范围皮肤归一化恒等'],
+    [0.725, [0.45, 1], 0.5, '范围中点 → 0.5'],
+  ];
+  let badV = 0;
+  cases.forEach(([fl, f, want, desc]) => {
+    const got = normAdj(fl, f);
+    if (!near(got, want)) { badV++; fail(`normAdj(${fl}, [${f}]) = ${got}，期望 ${want}（${desc}）`); }
+  });
+  // 钳制与零范围防御
+  if (normAdj(0.9, [0, 0.4]) !== 1) { badV++; fail('超出范围上限未钳制到 1'); }
+  if (normAdj(0.1, [0.5, 0.5]) !== 0) { badV++; fail('零范围未回退 0'); }
+  // 端到端例：10× 0.05（范围0-0.4）→ 归一化均值 0.125 → 产出范围 [0,0.3] → 0.0375（崭新）
+  const outF = 0 + 0.125 * (0.3 - 0);
+  if (!(near(outF, 0.0375) && wearBandOf(outF) === 'fn')) { badV++; fail(`端到端磨损映射异常: outF=${outF} band=${wearBandOf(outF)}`); }
+  badV === 0 ? ok(`${cases.length} 个标准向量 + 钳制/零范围防御 + 端到端映射全过`) : null;
+}
 
 // ---------- 1) 池去重 ----------
 console.log('\n[1] TRADEUP 池同名去重');
@@ -72,7 +97,8 @@ console.log('\n[1] TRADEUP 池同名去重');
 // ---------- 2) alchOptimize 全量不变量 ----------
 console.log('\n[2] alchOptimize 全量不变量（集合×档位×普通/ST）');
 {
-  const TIERS = ['mil', 'restr', 'clsfd', 'cov'];
+  // 10:1 常规链条只到 保密→隐秘；隐秘→金色 只有 5:1 合同（2025-10 规则）
+  const TIERS = ['mil', 'restr', 'clsfd'];
   let scanned = 0, valid = 0;
   const bad = [];
   for (const crate of TRADEUP.crates) {
@@ -92,6 +118,10 @@ console.log('\n[2] alchOptimize 全量不变量（集合×档位×普通/ST）')
           bad.push(`${tag}: 存在正收益卡片但 best=${best.net.toFixed(2)}（误报全场无正收益）`);
         // 扫描变体数不得超过合法变体总数
         if (r.totalV != null && r.scanned > r.totalV) bad.push(`${tag}: scanned ${r.scanned} > totalV ${r.totalV}`);
+        // 归一化语义：avg 必须落在 [0,1]
+        [best, worst, minF, maxF].forEach(x => {
+          if (x && (x.avg < -1e-9 || x.avg > 1 + 1e-9)) bad.push(`${tag}: avg ${x.avg} 超出归一化区间 [0,1]`);
+        });
       }
     }
   }

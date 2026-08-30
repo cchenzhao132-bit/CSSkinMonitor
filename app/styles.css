@@ -586,6 +586,10 @@ body {
 .alch-scan-row:hover td { background: var(--panel-2); }
 @media (max-width: 720px) { .alch-scan-grid { grid-template-columns: 1fr; } }
 
+/* 纪念品不可汰换警示横幅 */
+.alch-svn-warn { margin: 0 0 12px; padding: 10px 14px; border: 1px solid rgba(228, 174, 57, 0.5); border-radius: var(--radius-sm); background: rgba(228, 174, 57, 0.08); color: var(--gold); font-size: 12.5px; line-height: 1.6; }
+.alch-svn-warn strong { color: var(--gold); }
+
 .topbar-fav.spinning { animation: spin 1s linear infinite; color: var(--accent); border-color: var(--accent); }
 
 /* 详情标题英文副行 */
