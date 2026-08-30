@@ -57,6 +57,18 @@ node crawler.js --regen    # 重建 app/data.js
 python -m PyInstaller --onefile --windowed --name CSSkinMonitor --add-data "app;app" main.py
 ```
 
+### 测试与 CI
+
+回归测试分三层（数据层断言 + headless Edge 路由渲染 + jsdom 搜索交互）：
+
+```
+node regression.js              # 全量模式：需本机 app/data.js 全量数据 + Edge
+node regression.js --fixture    # fixture 模式：用 tests/fixture-data.js，无需全量爬取
+```
+
+- **fixture 数据**：`node build-fixture.js`（需先 `node crawler.js --regen`）从全量数据抽样导出 `tests/fixture-data.js`，覆盖炼金集合输出、中文别名搜索、全部分类、StatTrak/纪念/原版、第三方条目、真实历史等边界。该文件入库，CI / 外部贡献者 clone 后即可跑测试，无需数小时爬取。
+- **CI**：`.github/workflows/regression.yml` 在 push / PR 时于 windows-latest 上以 fixture 模式自动运行；改动 `crawler-templates/engine.js` 后需重跑 `node build-fixture.js` 重新生成 fixture（测试会校验引擎模板一致性，不一致即失败）。
+
 ## 爬虫设计（分层）
 
 ```

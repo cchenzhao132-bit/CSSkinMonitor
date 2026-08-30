@@ -1,6 +1,8 @@
 /**
  * 回归测试：数据层断言 + 关键路由渲染检查
- * 用法：node regression.js            （需本机有 Edge；路由检查用 headless dump-dom）
+ * 用法：
+ *   node regression.js             # 全量模式（需本机 app/data.js 全量数据 + Edge）
+ *   node regression.js --fixture   # fixture 模式（用 tests/fixture-data.js，CI / 外部贡献者）
  * 退出码：0 = 全部通过；1 = 存在失败
  */
 const { execFileSync, spawnSync } = require('child_process');
@@ -9,6 +11,15 @@ const path = require('path');
 
 const ROOT = __dirname;
 const APP = path.join(ROOT, 'app');
+// fixture 模式：数据源切到 tests/fixture-data.js，无需数小时全量爬取即可跑测试。
+// 触发方式：`node regression.js --fixture` 或 `FIXTURE=1 node regression.js`
+const FIXTURE = process.env.FIXTURE === '1' || process.env.FIXTURE === 'true' || process.argv.includes('--fixture');
+const DATA_FILE = FIXTURE ? path.join(ROOT, 'tests', 'fixture-data.js') : path.join(APP, 'data.js');
+// 绝对阈值：fixture 约 1200 条（全量 1/25），按比例收缩；炼金集合/金池完整保留故阈值不变
+const T = FIXTURE
+  ? { raw: 500, hist: 100, wear: 50, rising: 30, falling: 30, flat: 100, crates: 200 }
+  : { raw: 30000, hist: 20000, wear: 1000, rising: 3000, falling: 3000, flat: 20000, crates: 200 };
+if (FIXTURE) console.log(`[fixture 模式] 数据源：${DATA_FILE}`);
 let failed = 0, passed = 0;
 const ok = (cond, name, extra) => {
   if (cond) { passed++; console.log('  ✓', name); }
@@ -20,15 +31,23 @@ console.log('\n[1] 数据层 / 引擎断言');
 let env = {};
 {
   global.window = {};
-  const src = fs.readFileSync(path.join(APP, 'data.js'), 'utf8');
+  const src = fs.readFileSync(DATA_FILE, 'utf8');
   env = new Function(src + ';return {RAW,WEARDB,HISTORY,TRADEUP,ALL_ITEMS,RISING,FALLING,FLAT,HOT_COUNT};')();
 }
 const { RAW, WEARDB, HISTORY, TRADEUP, ALL_ITEMS, RISING, FALLING, FLAT } = env;
 
-ok(RAW.length >= 30000, `全库条目 ≥ 30000（实际 ${RAW.length}）`);
-ok(TRADEUP && TRADEUP.crates && TRADEUP.crates.length >= 200, `炼金集合 ≥ 200（实际 ${TRADEUP.crates.length}）`);
-ok(HISTORY && Object.keys(HISTORY.byName).length >= 20000, `价格快照覆盖 ≥ 20000（实际 ${Object.keys(HISTORY.byName).length}）`);
-ok(Object.keys(WEARDB).length >= 1000, `皮肤家族 ≥ 1000（实际 ${Object.keys(WEARDB).length}）`);
+// fixture 模式：校验 fixture 内嵌的引擎模板与当前 crawler-templates/engine.js 一致，
+// 防止 engine.js 改动后 fixture 未重新生成导致测到旧逻辑。
+if (FIXTURE) {
+  const engineNow = fs.readFileSync(path.join(ROOT, 'crawler-templates', 'engine.js'), 'utf8');
+  ok(fs.readFileSync(DATA_FILE, 'utf8').endsWith(engineNow),
+    'fixture 内嵌引擎模板与 engine.js 一致', '不一致请运行 `node build-fixture.js` 重新生成');
+}
+
+ok(RAW.length >= T.raw, `全库条目 ≥ ${T.raw}（实际 ${RAW.length}）`);
+ok(TRADEUP && TRADEUP.crates && TRADEUP.crates.length >= T.crates, `炼金集合 ≥ ${T.crates}（实际 ${TRADEUP.crates.length}）`);
+ok(HISTORY && Object.keys(HISTORY.byName).length >= T.hist, `价格快照覆盖 ≥ ${T.hist}（实际 ${Object.keys(HISTORY.byName).length}）`);
+ok(Object.keys(WEARDB).length >= T.wear, `皮肤家族 ≥ ${T.wear}（实际 ${Object.keys(WEARDB).length}）`);
 
 // 无 NaN/null 价格
 const badPrice = RAW.filter(i => !isFinite(i.base) || i.base === null);
@@ -43,8 +62,8 @@ ok(RAW.every(i => CAT_KEYS.includes(i.cat)), '全部条目分类键合法');
 // refOnly 标记一致性：refOnly 条目不进涨跌榜
 // refOnly 且历史未成熟的条目不进涨跌榜；已回填真实历史的第三方条目允许入榜（设计使然）
 ok(RISING.every(i => !(i.refOnly && !i.historyReal)) && FALLING.every(i => !(i.refOnly && !i.historyReal)), '涨跌榜不含无历史的第三方参考条目');
-ok(RISING.length >= 3000 && FALLING.length >= 3000, `涨跌榜规模 ≥ 3000（涨 ${RISING.length} / 跌 ${FALLING.length}）`);
-  ok(FLAT.length >= 20000, `无变动榜 ≥ 20000（实际 ${FLAT.length}）`);
+ok(RISING.length >= T.rising && FALLING.length >= T.falling, `涨跌榜规模 ≥ ${T.rising}（涨 ${RISING.length} / 跌 ${FALLING.length}）`);
+  ok(FLAT.length >= T.flat, `无变动榜 ≥ ${T.flat}（实际 ${FLAT.length}）`);
   ok(RISING.length + FALLING.length + FLAT.length === ALL_ITEMS.length, '三榜覆盖全库（涨+跌+无变动 = 全库）');
   ok(FLAT.every(i => !RISING.includes(i) && !FALLING.includes(i)), '无变动榜与涨跌榜无重叠（精确补集）');
 
@@ -109,6 +128,12 @@ ok(refOnlyNoData, '无历史第三方条目均为「无数据」');
 
 // ---------- Part 2: 路由渲染（headless Edge） ----------
 console.log('\n[2] 路由渲染检查（headless Edge）');
+// fixture 模式：Part 2 用 headless Edge 加载 app/index.html（其 <script src="data.js"> 指向 app/data.js）。
+// CI 里 app/data.js 不入库，这里用 fixture 补齐；本机已有全量 data.js 时不覆盖（保留本机全量跑 Part 2）。
+if (FIXTURE && !fs.existsSync(path.join(APP, 'data.js'))) {
+  fs.copyFileSync(DATA_FILE, path.join(APP, 'data.js'));
+  console.log('  ⚠ fixture 模式：已复制 fixture → app/data.js（供 headless Edge 渲染）');
+}
 const EDGE = ['C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', 'C:/Program Files/Microsoft/Edge/Application/msedge.exe'].find(p => fs.existsSync(p));
 if (!EDGE) { console.log('  ⚠ 未找到 Edge，跳过路由检查'); }
 else {
@@ -169,10 +194,16 @@ console.log('\n[3] 搜索功能端到端（jsdom）');
     url: 'file:///' + APP.replace(/\\/g, '/') + '/index.html?now=1#/up'
   });
   const { window } = dom;
-  for (const s of ['echarts.min.js', 'data.js', 'js/01-core.js', 'js/02-router.js', 'js/03-views-list.js',
-    'js/04-fav.js', 'js/05-alchemy.js', 'js/06-detail.js', 'js/07-boot.js']) {
+  // 数据文件：fixture 模式用 tests/fixture-data.js，否则 app/data.js；其余前端模块固定来自 app/
+  const bootFiles = [
+    path.join(APP, 'echarts.min.js'),
+    DATA_FILE,
+    ...['01-core.js', '02-router.js', '03-views-list.js', '04-fav.js', '05-alchemy.js', '06-detail.js', '07-boot.js']
+      .map(f => path.join(APP, 'js', f))
+  ];
+  for (const f of bootFiles) {
     const el = window.document.createElement('script');
-    el.textContent = fs.readFileSync(path.join(APP, s), 'utf8');
+    el.textContent = fs.readFileSync(f, 'utf8');
     window.document.body.appendChild(el);
   }
   await new Promise(r => setTimeout(r, 400));   // 首屏渲染（?now=1 跳过骨架屏）

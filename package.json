@@ -11,6 +11,8 @@
     "backfill": "node crawler.js --pages 0 --backfill 99999",
     "regen": "node crawler.js --regen",
     "test": "node regression.js",
+    "test:fixture": "node regression.js --fixture",
+    "fixture": "node build-fixture.js",
     "scan": "node scan-tradeup.js",
     "names": "node build-names.js",
     "tradeup": "node build-tradeup.js",
