@@ -39,6 +39,7 @@
   // 极值公式扫描：DP 求 10 槽在给定平均浮动桶下的最低成本组合
   function alchOptimize(crate, tier, st, fee) {
     const pool = crate.t[tier] || [];
+    if (!pool.length) return { note: '该集合在此档位没有皮肤（部分纪念包/武器箱缺少该档位），无法扫描' };
     const variants = [];
     let totalV = 0;   // 全部合法（皮肤×磨损）变体数（含无价被排除的）
     pool.forEach(p => {
@@ -139,6 +140,11 @@
     if (A.crate == null || A.crate >= crates.length) A.crate = 0;
     const crate = crates[A.crate];
     const is5 = A.mode === '5';
+    // 切换集合后当前档位可能不存在（如纪念包缺档位/无金池）→ 自动回退到首个有效档位
+    if (!is5) {
+      const tierOk = t => (crate.t[t] || []).length && (t !== 'cov' || (crate.gold || []).length);
+      if (!tierOk(A.tier)) A.tier = ['mil', 'restr', 'clsfd', 'cov'].find(tierOk) || 'mil';
+    }
     const tier = is5 ? 'cov' : A.tier;
     const nSlots = is5 ? 5 : 10;
     const pool = crate.t[tier] || [];
@@ -158,13 +164,14 @@
     });
     const cn2en = {};   // 手动模式按中文名输入时也能解析出英文库名查价
     crates.forEach(c => { Object.values(c.t).flat().concat(c.gold || []).forEach(e => { if (e.cn) cn2en[e.cn] = e.n; }); });
+    const resolveN = n => cn2en[n] || n;   // 中文名 → 英文库名（已是英文名则原样返回）
     const slotPrice = s => s.manual
-      ? (s.mprice != null ? { price: s.mprice, refOnly: false } : (alchPrice(cn2en[s.name] || s.name, s.wear, A.st)))
+      ? (s.mprice != null ? { price: s.mprice, refOnly: false } : (alchPrice(resolveN(s.name), s.wear, A.st)))
       : alchPrice(s.name, s.wear, A.st);
 
     const slotHtml = (s, i) => {
       const sPool = is5 ? (crates[s.ci].t.cov || []) : pool;
-      const p = sPool.find(x => x.n === s.name) || sPool[0];
+      const p = sPool.find(x => x.n === resolveN(s.name)) || sPool[0];
       const f0 = p ? p.f[0] : 0, f1 = p ? p.f[1] : 1;
       const wearOpts = BANDS.filter(b => Math.max(b[1], f0) < Math.min(b[2], f1))
         .map(b => `<option value="${b[0]}" ${s.wear === b[0] ? 'selected' : ''}>${WEAR_ZH[b[0]]}</option>`).join('');
@@ -265,11 +272,43 @@
       }
     }
 
+    // 今日炼金雷达（每日定时扫描：全市场 集合×档位 极值配方，点击行载入模拟器）
+    let scanHtml = '';
+    const SCAN = (typeof ALCHSCAN !== 'undefined' && ALCHSCAN && ALCHSCAN.best && ALCHSCAN.best.length) ? ALCHSCAN : null;
+    if (SCAN) {
+      const scanTable = (list, rowCls) => `
+        <table class="wear-table alch-scan-table">
+          <thead><tr><th>#</th><th>集合 / 路线</th><th>平均浮动</th><th>成本</th><th>EV</th><th>净收益</th><th>ROI</th></tr></thead>
+          <tbody>
+            ${list.map((r, i) => `
+              <tr class="alch-scan-row ${rowCls}" data-crate="${esc(r.crate)}" data-tier="${r.tier}" data-st="${r.st ? 1 : 0}" title="点击载入模拟器细调">
+                <td class="mono">${i + 1}</td>
+                <td class="w-name">${esc(r.cn)}<span class="w-en">${({ mil: '军规→受限', restr: '受限→保密', clsfd: '保密→隐秘', cov: '隐秘→金色' }[r.tier] || '')}${r.st ? ' · StatTrak' : ''}</span></td>
+                <td class="mono">${r.avg.toFixed(3)}</td>
+                <td class="mono">${fmt(r.cost)}</td>
+                <td class="mono">${fmt(r.ev)}</td>
+                <td><span class="w-price ${r.net > 0 ? 'up-c' : 'down-c'}">${r.net > 0 ? '+' : ''}${fmt(r.net)}</span></td>
+                <td class="mono">${r.roi > 0 ? '+' : ''}${r.roi}%</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>`;
+      scanHtml = `
+        <section class="chart-card alch-scan">
+          <div class="chart-head"><div class="chart-title"><span class="dot dot-ref"></span>今日炼金雷达
+            <span class="wear-hint">${SCAN.updatedAt} · 扫描 ${SCAN.combos} 个 集合×档位 组合 · 净收益已含 15% 市场费 · 挂牌价口径（天价挂牌会虚高 EV，入场前请核实成交）· 点击行载入模拟器</span></div></div>
+          <div class="alch-scan-grid">
+            <div><div class="alch-scan-title up-c">▲ 最赚配方 Top ${SCAN.best.length}</div>${scanTable(SCAN.best, 'alch-scan-best')}</div>
+            <div><div class="alch-scan-title down-c">▼ 最赔配方 Top ${SCAN.worst.length}</div>${scanTable(SCAN.worst, 'alch-scan-worst')}</div>
+          </div>
+        </section>`;
+    }
+
     app.innerHTML = `
       <div class="back-bar">
         <button class="back-btn" id="alchBackBtn">← 返回榜单</button>
         <span style="font-size:12px;color:var(--text-faint)">炼金模拟器 · 规则：2025-10 更新（10:1 普通 / 5:1 隐秘→刀手套）· 集合数据：游戏文件公开镜像</span>
       </div>
+      ${scanHtml}
       <section class="chart-card alch-panel">
         <div class="alch-row">
           <div class="alch-seg">
@@ -316,6 +355,12 @@
         </table>
       </section>`;
 
+    app.querySelectorAll('.alch-scan-row').forEach(tr => tr.addEventListener('click', () => {
+      const ci = crates.findIndex(c => c.name === tr.dataset.crate);
+      if (ci < 0) return;
+      A.mode = '10'; A.crate = ci; A.tier = tr.dataset.tier; A.st = tr.dataset.st === '1'; A.slots = [];
+      renderAlchemy();
+    }));
     $('#alchBackBtn').addEventListener('click', goBack);
     $('#alchCrate').addEventListener('change', e => { A.crate = +e.target.value; A.slots = []; renderAlchemy(); });
     app.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => { A.mode = b.dataset.mode; A.slots = []; renderAlchemy(); }));
@@ -329,10 +374,10 @@
       if (isNaN(i)) return;
       const s = A.slots[i];
       const sPool = is5 ? (crates[s.ci].t.cov || []) : pool;
-      const cur = sPool.find(x => x.n === s.name) || sPool[0];
+      const cur = sPool.find(x => x.n === resolveN(s.name)) || sPool[0];
       if (e.target.classList.contains('alch-manual')) {
         s.manual = !s.manual;
-        if (s.manual && s.mprice == null) { const p = alchPrice(s.name, s.wear, A.st); s.mprice = p ? p.price : null; }
+        if (s.manual && s.mprice == null) { const p = alchPrice(resolveN(s.name), s.wear, A.st); s.mprice = p ? p.price : null; }
         renderAlchemy();
       } else if (e.target.classList.contains('alch-crate')) {
         s.ci = +e.target.value;
@@ -346,7 +391,7 @@
         renderAlchemy();
       } else if (e.target.classList.contains('alch-mname')) {
         s.name = e.target.value.trim();
-        const fm = alchFloatMap()[s.name];
+        const fm = alchFloatMap()[resolveN(s.name)];
         if (fm) s.float = clampF(WEAR_MID[s.wear], fm[0], fm[1]);
         renderAlchemy();
       } else if (e.target.classList.contains('alch-mprice')) {

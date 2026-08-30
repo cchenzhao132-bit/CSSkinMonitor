@@ -31,7 +31,9 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
     const ps = [c.skinport, c.mcsgo, c.waxpeer].map(x => x && x.min > 0 ? x.min : null).filter(Boolean);
     return ps.length ? Math.min(...ps) * RATE : null;
   };
-  // 价格查询：优先 Steam 挂牌，其次三方参考最低（标注来源，费率只对 Steam 侧扣除）
+  // 价格查询：优先 Steam 挂牌，其次三方参考最低
+  // 费率口径与前端模拟器一致（d337831 决定）：EV 统一按 挂牌价 ÷ (1+费率) 折成卖方所得，
+  // 不按来源区分——ref 价是 Steam 无挂牌时的售价代理，卖出同样在 Steam 市场发生
   const priceOf = (baseName, wearKey, st) => {
     const prefix = st ? (baseName.indexOf('★ ') === 0 ? '★ StatTrak™ ' : 'StatTrak™ ') : '';
     const key = prefix + baseName + ' (' + WEAR_ZH2[wearKey] + ')';
@@ -48,7 +50,7 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
       const pool = crate.t[tier] || [];
       const nextKey = NEXT_TIER[tier];
       const outPool = nextKey === 'gold' ? (crate.gold || []) : (crate.t[nextKey] || []);
-      if (pool.length < 2 || !outPool.length) continue;        // 至少 2 种输入、产出池非空
+      if (!pool.length || !outPool.length) continue;              // 与前端模拟器一致：单皮肤池也参与（10× 同款合法）
 
       for (const st of [false, true]) {
         const variants = [];
@@ -60,8 +62,8 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
             }
           });
         }
-        if (variants.length < 2) { skipped++; continue; }
-        // 产出全都有价才参与（否则 EV 低估会误判最赔）
+        if (!variants.length) { skipped++; continue; }
+        // 产出全都有价才参与（否则 EV 低估会误判最赔）；EV 统一 ÷(1+FEE) 折卖方所得
         const evOfAvg = avg => {
           let ev = 0, ok = true;
           for (const o of outPool) {
@@ -70,7 +72,7 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
             const useSt = st && !gloves;
             const pr = priceOf(o.n, wearBandOf(f), useSt);
             if (!pr) { ok = false; break; }
-            ev += (pr.src === 'steam' ? pr.price / (1 + FEE) : pr.price) / outPool.length;
+            ev += pr.price / (1 + FEE) / outPool.length;
           }
           return ok ? ev : null;
         };
@@ -101,16 +103,10 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
           items.forEach(v => { const key = v.n + '|' + v.band; (agg[key] = agg[key] || { cn: v.cn, band: v.band, price: v.price, count: 0 }).count++; });
           return Object.values(agg);
         };
-        const bps = new Set([0.002, 0.998]);
-        for (const o of outPool) for (const bd of [0.07, 0.15, 0.38, 0.45]) {
-          const a = (bd - o.f[0]) / (o.f[1] - o.f[0]);
-          if (a > 0 && a < 1) bps.add(a);
-        }
-        const segs = [...bps].sort((a, b) => a - b);
+        // 全桶扫描最优：同一磨损段内 EV 不变、成本随浮动连续下降，最优在段高端——
+        // 旧版只扫段中点，会把转正的最优配方整个漏掉（与前端 alchOptimize 同口径）
         let best = null;
-        for (let i = 0; i < segs.length - 1; i++) {
-          const mid = (segs[i] + segs[i + 1]) / 2;
-          const b = clampF(Math.round(mid * 10 / 0.05), 0, 200);
+        for (let b = 0; b < NB; b++) {
           if (!dp[10][b]) continue;
           const avg = b * 0.05 / 10, cost = dp[10][b].c, ev = evOfAvg(avg);
           if (ev == null || cost <= 0) continue;

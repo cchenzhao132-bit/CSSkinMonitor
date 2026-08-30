@@ -1,6 +1,6 @@
 {
   "name": "cs-skin-monitor",
-  "version": "6.2.1",
+  "version": "6.2.3",
   "description": "CS2 饰品市场行情监测 · 分层爬取（Steam 热门层/深度层 + Skinport/market.csgo/Waxpeer 多源）+ 磨损价位 + 涨跌分类 + 炼金模拟器，pywebview 桌面应用",
   "private": true,
   "scripts": {
@@ -12,6 +12,7 @@
     "regen": "node crawler.js --regen",
     "test": "node regression.js",
     "test:fixture": "node regression.js --fixture",
+    "test:alchemy": "node tests/alchemy-audit.js",
     "fixture": "node build-fixture.js",
     "scan": "node scan-tradeup.js",
     "names": "node build-names.js",

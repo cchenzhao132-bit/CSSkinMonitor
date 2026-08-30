@@ -578,6 +578,14 @@ body {
 .alch-ext-recipe { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
 @media (max-width: 720px) { .alch-ext-grid { grid-template-columns: 1fr; } }
 
+/* 今日炼金雷达（每日扫描 最赚/最赔 Top） */
+.alch-scan-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 4px 12px 12px; }
+.alch-scan-title { font-size: 13px; font-weight: 600; margin: 4px 0 6px; }
+.alch-scan-table { margin-top: 2px; }
+.alch-scan-row { cursor: pointer; }
+.alch-scan-row:hover td { background: var(--panel-2); }
+@media (max-width: 720px) { .alch-scan-grid { grid-template-columns: 1fr; } }
+
 .topbar-fav.spinning { animation: spin 1s linear infinite; color: var(--accent); border-color: var(--accent); }
 
 /* 详情标题英文副行 */
