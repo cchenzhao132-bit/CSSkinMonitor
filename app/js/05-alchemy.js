@@ -48,16 +48,26 @@
         }
       });
     });
-    if (!variants.length) return null;
+    if (!variants.length) {
+      return { note: st
+        ? '该档位下没有任何皮肤存在 StatTrak™ 版本价格（老纪念包收藏品通常只有普通/纪念版），无法扫描——可取消 StatTrak 模式后查看'
+        : '该档位下没有任何（皮肤×磨损）变体存在价格数据，无法扫描' };
+    }
     const nextKey = NEXT_TIER[tier];
     const outPool = nextKey === 'gold' ? (crate.gold || []) : (crate.t[nextKey] || []);
-    if (!outPool.length) return null;
-    const evOfAvg = avg => outPool.reduce((s, o) => {
-      const f = o.f[0] + avg * (o.f[1] - o.f[0]);
-      const gloves = /Gloves|Glove/.test(o.n);
-      const pr = alchPrice(o.n, wearBandOf(f), st && !gloves);
-      return s + (pr ? pr.price / outPool.length : 0);
-    }, 0);
+    if (!outPool.length) return { note: '该集合没有下一档产出池，无法扫描' };
+    // 产出缺价 → EV 不可信，整桶弃用（与 scan-tradeup.js 口径一致：缺价按 0 计会低估 EV、误判最赚/最赔）
+    const evOfAvg = avg => {
+      let ev = 0;
+      for (const o of outPool) {
+        const f = o.f[0] + avg * (o.f[1] - o.f[0]);
+        const gloves = /Gloves|Glove/.test(o.n);
+        const pr = alchPrice(o.n, wearBandOf(f), st && !gloves);
+        if (!pr) return null;
+        ev += pr.price / outPool.length;
+      }
+      return ev;
+    };
     // DP：dp[k][b] = 前 k 件、浮动和落在桶 b 的最低成本（桶步长 0.05，和上限 10）
     const STEP = 0.05, NB = 201;
     const vrb = variants.map(v => ({ ...v, rb: Math.max(1, Math.round(v.float / STEP)) }));
@@ -95,8 +105,10 @@
     };
     const evalB = b => {
       if (!dp[10][b]) return null;
-      const avg = b * STEP / 10, cost = dp[10][b].c, ev = evOfAvg(avg);
-      // 与主面板同口径：卖方所得 = 挂牌价 ÷ (1+费率)（此前硬编码 13%，费率可调时与主面板对不上）
+      const ev = evOfAvg(b * STEP / 10);
+      if (ev === null) return null;   // 该浮动下产出有缺价 → EV 不可信
+      const avg = b * STEP / 10, cost = dp[10][b].c;
+      // 与主面板同口径：卖方所得 = 挂牌价 ÷ (1+费率)
       return { avg, cost, ev, net: ev / (1 + fee / 100) - cost, recipe: mkRecipe(b) };
     };
     let best = null, worst = null, minF = null, maxF = null;
@@ -109,8 +121,13 @@
       if (!best || r.net > best.net) best = r;
       if (!worst || r.net < worst.net) worst = r;
     }
-    for (let b = 0; b < NB; b++) if (dp[10][b]) { if (minF === null) minF = evalB(b); break; }
-    for (let b = NB - 1; b >= 0; b--) if (dp[10][b]) { if (maxF === null) maxF = evalB(b); break; }
+    for (let b = 0; b < NB && minF === null; b++) if (dp[10][b]) minF = evalB(b);
+    for (let b = NB - 1; b >= 0 && maxF === null; b--) if (dp[10][b]) maxF = evalB(b);
+    if (!best && !worst && !minF && !maxF) {
+      return { note: st
+        ? '产出池中存在无 StatTrak™ 版本价格的皮肤，EV 无法可信估计，已跳过扫描——可取消 StatTrak 模式后查看'
+        : '产出池中存在无价格数据的皮肤，EV 无法可信估计，已跳过扫描' };
+    }
     return { best, worst, minF, maxF, scanned: variants.length };
   }
 
@@ -213,7 +230,14 @@
     let optHtml = '';
     if (!is5) {
       const opt = alchOptimize(crate, tier, A.st, A.feeOn ? A.feePct : 0);
-      if (opt) {
+      if (opt && opt.note) {
+        // 无法可信扫描（如 ST 模式遇老纪念包收藏品、产出缺价）：给出原因，不再静默消失
+        optHtml = `
+          <section class="chart-card">
+            <div class="chart-head"><div class="chart-title"><span class="dot dot-ref"></span>极值公式扫描</div></div>
+            <div class="wear-hint" style="padding:0 12px 10px">⚗ ${esc(opt.note)}。</div>
+          </section>`;
+      } else if (opt && (opt.best || opt.worst || opt.minF || opt.maxF)) {
         const card = (title, r, cls) => {
           if (!r) return '';
           const recipe = r.recipe.map(x => `${x.count}× ${esc(x.cn)}（${WEAR_ZH[x.band]}）`).join(' + ');
@@ -223,17 +247,19 @@
             <div class="alch-ext-recipe">${recipe}</div>
           </div>`;
         };
+        // 全场皆亏时如实标注，避免「最赚」却显示负数的观感矛盾
+        const bestTitle = opt.best && opt.best.net > 0 ? '最赚公式' : '亏得最少（全场无正收益）';
         optHtml = `
           <section class="chart-card">
             <div class="chart-head"><div class="chart-title"><span class="dot dot-ref"></span>极值公式扫描</div>
               <span class="wear-hint">在该集合该档位下，穷举 10 槽浮动与皮肤组合的最低成本路径 · 扫描 ${opt.scanned} 个（皮肤×磨损）变体</span></div>
             <div class="alch-ext-grid">
-              ${card('最赚公式', opt.best, 'alch-ext-best')}
+              ${card(bestTitle, opt.best, 'alch-ext-best')}
               ${card('最赔公式', opt.worst, 'alch-ext-worst')}
               ${card('产出浮动最小', opt.minF)}
               ${card('产出浮动最大', opt.maxF)}
             </div>
-            <div class="wear-hint" style="padding:0 12px 10px">产出浮动最小/最大 = 可实现的最低/最高平均输入浮动；最赚/最赔 = 该浮动水平下成本最低配方的净收益。成交不足 3 次的产出不参与。</div>
+            <div class="wear-hint" style="padding:0 12px 10px">产出浮动最小/最大 = 可实现的最低/最高平均输入浮动；最赚/最赔 = 该浮动水平下成本最低配方的净收益。产出存在缺价时该浮动段不参与（缺价按 0 计会低估 EV）。当所有配方净收益为负，「亏得最少」仅是损失最小的选择，不代表能盈利。</div>
           </section>`;
       }
     }
