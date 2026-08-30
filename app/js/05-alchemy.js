@@ -243,7 +243,7 @@
           const recipe = r.recipe.map(x => `${x.count}× ${esc(x.cn)}（${WEAR_ZH[x.band]}）`).join(' + ');
           return `<div class="alch-ext ${cls || ''}">
             <div class="alch-ext-title">${title}</div>
-            <div class="alch-ext-num">平均浮动 ${r.avg.toFixed(3)} · 成本 ${fmt(r.cost)} · EV ${fmt(r.ev)} · <b class="${r.net > 0 ? 'up-c' : 'down-c'}">${r.net > 0 ? '+' : ''}${fmt(r.net)}</b></div>
+            <div class="alch-ext-num">平均浮动 ${r.avg.toFixed(3)} · 成本 ${fmt(r.cost)} · EV ${fmt(r.ev)} · <b class="${r.net > 0 ? 'up-c' : 'down-c'}">${fmtSigned(r.net)}</b></div>
             <div class="alch-ext-recipe">${recipe}</div>
           </div>`;
         };
