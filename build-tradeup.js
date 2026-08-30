@@ -45,6 +45,16 @@ async function getJSON(url) {
     if (!f) return null;
     return { n: it.name, cn: zhById[it.id] || it.name, f };
   };
+  // 炼金池去重：同名条目是同一涂装的多个数据变体（如 Doppler 的暗位/磨损态），
+  // 炼金只产出"涂装类型"，重复会虚高该涂装中奖率 → 必须按名称去重，各保留一条
+  const dedupe = pool => {
+    const seen = new Set();
+    return (pool || []).filter(e => {
+      if (!e || seen.has(e.n)) return false;
+      seen.add(e.n);
+      return true;
+    });
+  };
   const out = [];
   const zhCrateById = {};
   for (const c of cratesZh) zhCrateById[c.id] = c;
@@ -58,7 +68,8 @@ async function getJSON(url) {
       if (!e) continue;
       (t[k] = t[k] || []).push(e);
     }
-    const gold = (cr.contains_rare || []).map(mk).filter(Boolean);
+    Object.keys(t).forEach(k => { t[k] = dedupe(t[k]); });
+    const gold = dedupe((cr.contains_rare || []).map(mk).filter(Boolean));
     if (!Object.keys(t).length && !gold.length) continue;
     const zc = zhCrateById[cr.id];
     out.push({

@@ -85,12 +85,6 @@
         dp[k][b] = best;
       }
     }
-    // 平均浮动断点分段（产出磨损跨档处 EV 跳变）
-    const bps = new Set([0.002, 0.998]);
-    for (const o of outPool) for (const bd of [0.07, 0.15, 0.38, 0.45]) {
-      const a = (bd - o.f[0]) / (o.f[1] - o.f[0]);
-      if (a > 0 && a < 1) bps.add(a);
-    }
     const mkRecipe = b => {
       const items = [];
       let cur = b, k = 10;
@@ -112,10 +106,10 @@
       return { avg, cost, ev, net: ev / (1 + fee / 100) - cost, recipe: mkRecipe(b) };
     };
     let best = null, worst = null, minF = null, maxF = null;
-    const segs = [...bps].sort((a, b) => a - b);
-    for (let i = 0; i < segs.length - 1; i++) {
-      const mid = (segs[i] + segs[i + 1]) / 2;
-      const b = clampF(Math.round(mid * 10 / STEP), 0, 200);
+    // 全桶扫描最赚/最赔：同一磨损段内 EV 不变，但成本随浮动连续下降，
+    // 故每段最优在「段的高端」（贴近下一磨损档边界），而非段中点。
+    // （旧实现只扫段中点，会把正收益的最优配方整个漏掉，误报「全场无正收益」）
+    for (let b = 0; b < NB; b++) {
       const r = evalB(b);
       if (!r) continue;
       if (!best || r.net > best.net) best = r;
@@ -294,7 +288,7 @@
         <div class="stat-card"><span class="stat-label">输入成本（${nSlots} 件${costUnknown ? ` · ${costUnknown} 件无价` : ''}）</span><span class="stat-value">${fmt(cost)}</span></div>
         <div class="stat-card"><span class="stat-label">平均输入浮动</span><span class="stat-value">${avgF.toFixed(4)}</span></div>
         <div class="stat-card"><span class="stat-label">期望产出 EV</span><span class="stat-value">${fmt(ev)}</span></div>
-        <div class="stat-card"><span class="stat-label">净收益 ${A.feeOn ? `（含 ${A.feePct}% 费）` : ''}</span><span class="stat-value ${net > 0 ? 'up-c' : 'down-c'}">${net > 0 ? '+' : ''}${fmt(net)}（${roi.toFixed(1)}%）</span></div>
+        <div class="stat-card"><span class="stat-label">净收益 ${A.feeOn ? `（含 ${A.feePct}% 费）` : ''}</span><span class="stat-value ${net > 0 ? 'up-c' : 'down-c'}">${fmtSigned(net)}（${roi.toFixed(1)}%）</span></div>
       </section>
       ${optHtml}
       <section class="chart-card">
