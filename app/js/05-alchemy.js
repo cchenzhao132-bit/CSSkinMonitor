@@ -40,9 +40,11 @@
   function alchOptimize(crate, tier, st, fee) {
     const pool = crate.t[tier] || [];
     const variants = [];
+    let totalV = 0;   // 全部合法（皮肤×磨损）变体数（含无价被排除的）
     pool.forEach(p => {
       BANDS.forEach(b => {
         if (Math.max(b[1], p.f[0]) < Math.min(b[2], p.f[1])) {
+          totalV++;
           const pr = alchPrice(p.n, b[0], st);
           if (pr) variants.push({ n: p.n, cn: p.cn || p.n, band: b[0], float: clampF(WEAR_MID[b[0]], p.f[0], p.f[1]), price: pr.price });
         }
@@ -122,7 +124,7 @@
         ? '产出池中存在无 StatTrak™ 版本价格的皮肤，EV 无法可信估计，已跳过扫描——可取消 StatTrak 模式后查看'
         : '产出池中存在无价格数据的皮肤，EV 无法可信估计，已跳过扫描' };
     }
-    return { best, worst, minF, maxF, scanned: variants.length };
+    return { best, worst, minF, maxF, scanned: variants.length, totalV };
   }
 
   function renderAlchemy() {
@@ -154,8 +156,10 @@
       const p0 = pp[0];
       A.slots[i] = { ci, name: p0 ? p0.n : '', wear: 'ft', float: p0 ? clampF(WEAR_MID.ft, p0.f[0], p0.f[1]) : 0.25, manual: false, mprice: null };
     });
+    const cn2en = {};   // 手动模式按中文名输入时也能解析出英文库名查价
+    crates.forEach(c => { Object.values(c.t).flat().concat(c.gold || []).forEach(e => { if (e.cn) cn2en[e.cn] = e.n; }); });
     const slotPrice = s => s.manual
-      ? (s.mprice != null ? { price: s.mprice, refOnly: false } : (alchPrice(s.name, s.wear, A.st)))
+      ? (s.mprice != null ? { price: s.mprice, refOnly: false } : (alchPrice(cn2en[s.name] || s.name, s.wear, A.st)))
       : alchPrice(s.name, s.wear, A.st);
 
     const slotHtml = (s, i) => {
@@ -219,6 +223,9 @@
     // Steam 费按"卖方所得 = 挂牌价 ÷ (1+费率)"口径（官方 5%+10% ≈ 15%）
     const net = A.feeOn ? ev / (1 + A.feePct / 100) - cost : ev - cost;
     const roi = cost > 0 ? net / cost * 100 : 0;
+    // 存在无价槽位时成本被少计，净收益必然虚高 → 不显示数字，与扫描器「缺价不参与」口径一致
+    const netTrusted = costUnknown === 0;
+    const evPartial = priced.length < rows.length;   // 部分产出缺价 → EV 低估
 
     // 极值公式扫描（仅 10:1；5:1 组合空间不同）
     let optHtml = '';
@@ -246,7 +253,7 @@
         optHtml = `
           <section class="chart-card">
             <div class="chart-head"><div class="chart-title"><span class="dot dot-ref"></span>极值公式扫描</div>
-              <span class="wear-hint">在该集合该档位下，穷举 10 槽浮动与皮肤组合的最低成本路径 · 扫描 ${opt.scanned} 个（皮肤×磨损）变体</span></div>
+              <span class="wear-hint">在该集合该档位下，穷举 10 槽浮动与皮肤组合的最低成本路径 · 扫描 ${opt.scanned} 个（皮肤×磨损）变体${opt.totalV > opt.scanned ? ` · ${opt.totalV - opt.scanned} 个无价变体未参与` : ''}</span></div>
             <div class="alch-ext-grid">
               ${card(bestTitle, opt.best, 'alch-ext-best')}
               ${card('最赔公式', opt.worst, 'alch-ext-worst')}
@@ -285,10 +292,10 @@
         <datalist id="alchDl">${crates.flatMap(c => [...Object.values(c.t).flat(), ...(c.gold || [])]).map(e => `<option value="${esc(e.n)}">${esc(e.cn || e.n)}</option>`).join('')}</datalist>
       </section>
       <section class="alch-summary">
-        <div class="stat-card"><span class="stat-label">输入成本（${nSlots} 件${costUnknown ? ` · ${costUnknown} 件无价` : ''}）</span><span class="stat-value">${fmt(cost)}</span></div>
+        <div class="stat-card"><span class="stat-label">输入成本（${nSlots} 件${costUnknown ? ` · ${costUnknown} 件无价未计入` : ''}）</span><span class="stat-value">${fmt(cost)}</span></div>
         <div class="stat-card"><span class="stat-label">平均输入浮动</span><span class="stat-value">${avgF.toFixed(4)}</span></div>
-        <div class="stat-card"><span class="stat-label">期望产出 EV</span><span class="stat-value">${fmt(ev)}</span></div>
-        <div class="stat-card"><span class="stat-label">净收益 ${A.feeOn ? `（含 ${A.feePct}% 费）` : ''}</span><span class="stat-value ${net > 0 ? 'up-c' : 'down-c'}">${fmtSigned(net)}（${roi.toFixed(1)}%）</span></div>
+        <div class="stat-card"><span class="stat-label">期望产出 EV${evPartial ? '（部分产出缺价·低估）' : ''}</span><span class="stat-value">${fmt(ev)}</span></div>
+        <div class="stat-card"><span class="stat-label">净收益 ${A.feeOn ? `（含 ${A.feePct}% 费）` : ''}</span><span class="stat-value ${netTrusted ? (net > 0 ? 'up-c' : 'down-c') : ''}">${netTrusted ? `${fmtSigned(net)}（${roi.toFixed(1)}%）` : `—（${costUnknown} 件槽位无价，净收益不可信）`}</span></div>
       </section>
       ${optHtml}
       <section class="chart-card">
