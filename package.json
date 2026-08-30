@@ -18,7 +18,8 @@
     "names": "node build-names.js",
     "tradeup": "node build-tradeup.js",
     "deep": "node crawler.js --mode weapons && node crawler.js --mode knives && node crawler.js --mode collect",
-    "build": "python -m PyInstaller --onefile --windowed --name CSSkinMonitor --add-data \"app;app\" --add-data \"crawler.js;.\" --add-data \"sources.js;.\" --add-data \"crawler-templates;crawler-templates\" main.py"
+    "build": "python -m PyInstaller --onefile --windowed --name CSSkinMonitor --add-data \"app;app\" --add-data \"crawler.js;.\" --add-data \"sources.js;.\" --add-data \"crawler-templates;crawler-templates\" main.py",
+    "test:render": "node tests/alchemy-render.js"
   },
   "engines": {
     "node": ">=16"
