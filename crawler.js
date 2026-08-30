@@ -638,7 +638,11 @@ function buildWearDB(cache) {
     const ref = {
       ...(c.skinport && c.skinport.min > 0 ? { sp: toCNY(c.skinport.min) } : {}),
       ...(c.mcsgo && c.mcsgo.price > 0 ? { mc: toCNY(c.mcsgo.price) } : {}),
-      ...(c.waxpeer && c.waxpeer.min > 0 ? { wx: toCNY(c.waxpeer.min) } : {})
+      ...(c.waxpeer && c.waxpeer.min > 0 ? { wx: toCNY(c.waxpeer.min) } : {}),
+      // 流动性信号：挂牌数/成交量（炼金产出可执行性判定用）
+      ...(c.skinport && c.skinport.qty > 0 ? { spq: c.skinport.qty } : {}),
+      ...(c.mcsgo && c.mcsgo.volume > 0 ? { mcv: c.mcsgo.volume } : {}),
+      ...(c.waxpeer && c.waxpeer.count > 0 ? { wxc: c.waxpeer.count } : {})
     };
     return Object.keys(ref).length ? ref : null;
   };

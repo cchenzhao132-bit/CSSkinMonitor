@@ -128,6 +128,7 @@ function buildItem(def) {
     icon: def.icon || null,                 // CDN 兜底用哈希（Akamai 备用源）
     currentPrice, previousPrice, changeAmount, changePercent,
     lowestPrice, highestPrice, priceHistory,
+    listPrice: def.base,                     // 真实挂牌价（爬取时点；refOnly 条目为三方最低参考）——炼金等定价敏感场景用，currentPrice 是图表末点、可能含模拟游走扰动
     historyReal,
     changeClass,
     rarity: def.rarity, rarityName: RARITY[def.rarity].name, rarityColor: RARITY[def.rarity].color,

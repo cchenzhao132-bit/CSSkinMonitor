@@ -90,16 +90,30 @@ console.log('\n[0b] 产出卖出价：median 与 alchSalePrice');
   if (!near(median([100]), 100)) { badV++; fail('median 单元素错误'); }
   // alchSalePrice：有 p7 的条目应等于 p7（成交中位），且 ≤ 该皮肤各来源最高价
   let checked = 0, badSale = 0;
+  let illqTrue = 0, illqFalse = 0;
+  const wearKeyOfName = n => n.match(/ \(Factory New\)$/) ? 'fn' : n.match(/ \(Minimal Wear\)$/) ? 'mw' : n.match(/ \(Field-Tested\)$/) ? 'ft' : n.match(/ \(Well-Worn\)$/) ? 'ww' : 'bs';
   for (const it of ALL_ITEMS) {
     if (!(it.p7 > 0) || !it.ref) continue;
-    const r = alchSalePrice(it.name.replace(/ \((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)$/, ''), (it.name.match(/ \(Factory New\)$/) ? 'fn' : it.name.match(/ \(Minimal Wear\)$/) ? 'mw' : it.name.match(/ \(Field-Tested\)$/) ? 'ft' : it.name.match(/ \(Well-Worn\)$/) ? 'ww' : 'bs'), false);
+    const r = alchSalePrice(it.name.replace(/ \((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)$/, ''), wearKeyOfName(it.name), false);
     if (!r) continue;
     checked++;
     if (!near(r.price, it.p7)) { badSale++; if (badSale <= 3) fail(`${it.name}: sale ${r.price} ≠ p7 ${it.p7}`); }
     if (r.srcTag !== '7日成交中位') { badSale++; fail(`${it.name}: srcTag=${r.srcTag}，应为 7日成交中位`); }
+    if (r.illiquid !== false) { badSale++; fail(`${it.name}: 有成交中位却标记低流动性`); }
     if (checked >= 200) break;
   }
-  if (!badSale && checked >= 50) ok(`median 3 向量 + alchSalePrice 成交口径抽检 ${checked} 条全过`);
+  // 无 p7 条目：illiquid 必须等于 (三方流动性合计 < 10)
+  for (const it of ALL_ITEMS) {
+    if (it.p7 > 0 || !it.ref || !(it.ref.sp || it.ref.mc || it.ref.wx)) continue;
+    const r = alchSalePrice(it.name.replace(/ \((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)$/, ''), wearKeyOfName(it.name), false);
+    if (!r) continue;
+    const liq = (it.ref.spq || 0) + (it.ref.mcv || 0) + (it.ref.wxc || 0);
+    checked++;
+    if (r.illiquid !== (liq < 10)) { badSale++; if (badSale <= 3) fail(`${it.name}: illiquid=${r.illiquid} 与流动性 ${liq} 不一致`); }
+    if (r.illiquid) illqTrue++; else illqFalse++;
+    if (illqTrue > 50 && illqFalse > 50) break;
+  }
+  if (!badSale && checked >= 50) ok(`median 3 向量 + alchSalePrice 成交口径 ${checked} 条抽检全过（低流动性判定的正/反例：${illqTrue}/${illqFalse}）`);
   else if (checked < 50) console.log(`  ⚠ 带 p7 条目抽检不足（${checked}），跳过强断言`);
 }
 

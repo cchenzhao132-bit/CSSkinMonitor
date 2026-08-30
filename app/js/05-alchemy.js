@@ -13,23 +13,29 @@
     return m;
   }
   // 皮肤某磨损的价格：Steam 条目优先，其次第三方参考条目
+  // 用 listPrice（真实挂牌价）而非 currentPrice（图表末点，不足 8 天真实历史的条目含模拟游走扰动，
+  // 会让炼金成本/EV 与雷达产生 20%+ 漂移）
   function alchPrice(baseName, wearKey, st) {
     const prefix = st ? (baseName.indexOf('★ ') === 0 ? '★ StatTrak™ ' : 'StatTrak™ ') : '';
     const want = prefix + baseName + (wearKey === 'van' ? '' : ' (' + WEAR_EN[wearKey] + ')');
     const it = (alchIndex()[baseName] || []).find(i => i.name === want);
-    return it ? { price: it.currentPrice, refOnly: !!it.refOnly } : null;
+    return it ? { price: it.listPrice != null ? it.listPrice : it.currentPrice, refOnly: !!it.refOnly } : null;
   }
   // 产出卖出价（成交口径，抗天价挂牌）：优先 7 日成交中位（Skinport，成交量≥3 才有），
   // 否则取 Steam 挂牌与三方 min（sp/mc/wx）的中位数——单一来源虚高会被中位吸收
   const median = arr => { const s = [...arr].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  const LIQ_MIN = 10;   // 三方挂牌/成交量合计低于此值且无成交数据 → 视为低流动性（卖出价不可执行）
   function alchSalePrice(baseName, wearKey, st) {
     const prefix = st ? (baseName.indexOf('★ ') === 0 ? '★ StatTrak™ ' : 'StatTrak™ ') : '';
     const want = prefix + baseName + (wearKey === 'van' ? '' : ' (' + WEAR_EN[wearKey] + ')');
     const it = (alchIndex()[baseName] || []).find(i => i.name === want);
     if (!it) return null;
-    const ps = [!it.refOnly ? it.currentPrice : null, it.ref && it.ref.sp, it.ref && it.ref.mc, it.ref && it.ref.wx].filter(v => v > 0);
+    const listPr = it.listPrice != null ? it.listPrice : it.currentPrice;
+    const ps = [!it.refOnly ? listPr : null, it.ref && it.ref.sp, it.ref && it.ref.mc, it.ref && it.ref.wx].filter(v => v > 0);
     const sale = it.p7 > 0 ? it.p7 : (ps.length ? median(ps) : null);
-    return sale > 0 ? { price: Math.round(sale * 100) / 100, srcTag: it.p7 > 0 ? '7日成交中位' : '多源中位' } : null;
+    if (!(sale > 0)) return null;
+    const liq = it.ref ? (it.ref.spq || 0) + (it.ref.mcv || 0) + (it.ref.wxc || 0) : 0;
+    return { price: Math.round(sale * 100) / 100, srcTag: it.p7 > 0 ? '7日成交中位' : '多源中位', liq, illiquid: !(it.p7 > 0) && liq < LIQ_MIN };
   }
   const wearBandOf = f => f < 0.07 ? 'fn' : f < 0.15 ? 'mw' : f < 0.38 ? 'ft' : f < 0.45 ? 'ww' : 'bs';
   const WEAR_MID = { fn: 0.035, mw: 0.11, ft: 0.265, ww: 0.415, bs: 0.725 };
@@ -79,17 +85,19 @@
     const outPool = nextKey === 'gold' ? (crate.gold || []) : (crate.t[nextKey] || []);
     if (!outPool.length) return { note: '该集合没有下一档产出池，无法扫描' };
     // 产出缺价 → EV 不可信，整桶弃用（与 scan-tradeup.js 口径一致：缺价按 0 计会低估 EV、误判最赚/最赔）
-    // 产出按"成交口径"卖出价（alchSalePrice）而非挂牌价——天价挂牌不进 EV
+    // 产出按"成交口径"卖出价（alchSalePrice）而非挂牌价——天价挂牌不进 EV；
+    // 低流动性产出（无成交且挂牌稀少）标记 illq，供卡片警示
     const evOfAvg = avg => {
-      let ev = 0;
+      let ev = 0, illq = false;
       for (const o of outPool) {
         const f = o.f[0] + avg * (o.f[1] - o.f[0]);
         const gloves = /Gloves|Glove/.test(o.n);
         const pr = alchSalePrice(o.n, wearBandOf(f), st && !gloves);
         if (!pr) return null;
+        if (pr.illiquid) illq = true;
         ev += pr.price / outPool.length;
       }
-      return ev;
+      return { ev, illq };
     };
     // DP：dp[k][b] = 前 k 件、归一化浮动和落在桶 b 的最低成本（桶步长 0.05，和上限 10）
     // 桶轴 = 归一化值（游戏按此平均），不是原始浮动
@@ -124,11 +132,11 @@
     const evalB = b => {
       if (!dp[10][b]) return null;
       const avg = b * STEP / 10;   // 归一化平均浮动（游戏语义）
-      const ev = evOfAvg(avg);
-      if (ev === null) return null;   // 该浮动下产出有缺价 → EV 不可信
+      const res = evOfAvg(avg);
+      if (!res) return null;   // 该浮动下产出有缺价 → EV 不可信
       const cost = dp[10][b].c;
       // 与主面板同口径：卖方所得 = 挂牌价 ÷ (1+费率)
-      return { avg, cost, ev, net: ev / (1 + fee / 100) - cost, recipe: mkRecipe(b) };
+      return { avg, cost, ev: res.ev, illq: res.illq, net: res.ev / (1 + fee / 100) - cost, recipe: mkRecipe(b) };
     };
     let best = null, worst = null, minF = null, maxF = null;
     // 全桶扫描最赚/最赔：同一磨损段内 EV 不变，但成本随浮动连续下降，
@@ -262,6 +270,7 @@
     // 存在无价槽位时成本被少计，净收益必然虚高 → 不显示数字，与扫描器「缺价不参与」口径一致
     const netTrusted = costUnknown === 0;
     const evPartial = priced.length < rows.length;   // 部分产出缺价 → EV 低估
+    const outIlliquid = priced.some(r => r.pr.illiquid);   // 产出含低流动性条目 → 卖出价可执行性存疑
 
     // 极值公式扫描（仅 10:1；5:1 组合空间不同）
     let optHtml = '';
@@ -278,9 +287,10 @@
         const card = (title, r, cls) => {
           if (!r) return '';
           const recipe = r.recipe.map(x => `${x.count}× ${esc(x.cn)}（${WEAR_ZH[x.band]}）`).join(' + ');
+          const warn = r.illq ? '<span class="down-c"> ⚠ 产出低流动性（无成交数据且挂牌稀少），净收益不可当可执行收益</span>' : '';
           return `<div class="alch-ext ${cls || ''}">
             <div class="alch-ext-title">${title}</div>
-            <div class="alch-ext-num">归一化均值 ${r.avg.toFixed(3)} · 成本 ${fmt(r.cost)} · EV ${fmt(r.ev)} · <b class="${r.net > 0 ? 'up-c' : 'down-c'}">${fmtSigned(r.net)}</b></div>
+            <div class="alch-ext-num">归一化均值 ${r.avg.toFixed(3)} · 成本 ${fmt(r.cost)} · EV ${fmt(r.ev)} · <b class="${r.net > 0 ? 'up-c' : 'down-c'}">${fmtSigned(r.net)}</b>${warn}</div>
             <div class="alch-ext-recipe">${recipe}</div>
           </div>`;
         };
@@ -324,7 +334,7 @@
       scanHtml = `
         <section class="chart-card alch-scan">
           <div class="chart-head"><div class="chart-title"><span class="dot dot-ref"></span>今日炼金雷达
-            <span class="wear-hint">${SCAN.updatedAt} · 扫描 ${SCAN.combos} 个 集合×档位 组合 · 净收益已含 15% 市场费 · 产出按 7 日成交中位/多源中位价（抗天价挂牌），输入按挂牌价 · 纪念收藏按普通（非纪念品）版本计价，Souvenir 皮肤不可汰换 · 点击行载入模拟器</span></div></div>
+            <span class="wear-hint">${SCAN.updatedAt} · 扫描 ${SCAN.combos} 个 集合×档位 组合 · 净收益已含 15% 市场费 · 产出按 7 日成交中位/多源中位价（抗天价挂牌），输入按挂牌价 · 纪念收藏按普通（非纪念品）版本计价，Souvenir 皮肤不可汰换${SCAN.excludedIlliquid > 0 ? ` · 另有 ${SCAN.excludedIlliquid} 个高名义收益配方因产出/输入低流动性被剔除出最赚榜` : ''} · 点击行载入模拟器</span></div></div>
           <div class="alch-scan-grid">
             <div><div class="alch-scan-title up-c">▲ 最赚配方 Top ${SCAN.best.length}</div>${scanTable(SCAN.best, 'alch-scan-best')}</div>
             <div><div class="alch-scan-title down-c">▼ 最赔配方 Top ${SCAN.worst.length}</div>${scanTable(SCAN.worst, 'alch-scan-worst')}</div>
@@ -364,7 +374,7 @@
         <div class="stat-card"><span class="stat-label">输入成本（${nSlots} 件${costUnknown ? ` · ${costUnknown} 件无价未计入` : ''}）</span><span class="stat-value">${fmt(cost)}</span></div>
         <div class="stat-card"><span class="stat-label">平均输入浮动（归一化）</span><span class="stat-value">${avgF.toFixed(4)}（${avgAdj.toFixed(3)}）</span></div>
         <div class="stat-card"><span class="stat-label">期望产出 EV${evPartial ? '（部分产出缺价·低估）' : '（成交口径）'}</span><span class="stat-value">${fmt(ev)}</span></div>
-        <div class="stat-card"><span class="stat-label">净收益 ${A.feeOn ? `（含 ${A.feePct}% 费）` : ''}</span><span class="stat-value ${netTrusted ? (net > 0 ? 'up-c' : 'down-c') : ''}">${netTrusted ? `${fmtSigned(net)}（${roi.toFixed(1)}%）` : `—（${costUnknown} 件槽位无价，净收益不可信）`}</span></div>
+        <div class="stat-card"><span class="stat-label">净收益 ${A.feeOn ? `（含 ${A.feePct}% 费）` : ''}${outIlliquid ? ' · ⚠ 产出低流动性' : ''}</span><span class="stat-value ${netTrusted ? (net > 0 ? 'up-c' : 'down-c') : ''}">${netTrusted ? `${fmtSigned(net)}（${roi.toFixed(1)}%）` : `—（${costUnknown} 件槽位无价，净收益不可信）`}</span></div>
       </section>
       ${optHtml}
       <section class="chart-card">
@@ -379,7 +389,7 @@
                 <td class="mono">${r.outF.toFixed(4)}</td>
                 <td>${WEAR_ZH[r.w]}</td>
                 <td>${r.pr ? `<span class="w-price">${fmt(r.pr.price)}</span>` : '—'}</td>
-                <td>${r.pr ? esc(r.pr.srcTag || '') : '<span style="color:var(--text-faint)">无数据</span>'}</td>
+                <td>${r.pr ? esc(r.pr.srcTag || '') + (r.pr.illiquid ? ' <span class="down-c">⚠ 低流动性</span>' : '') : '<span style="color:var(--text-faint)">无数据</span>'}</td>
               </tr>`).join('')}
           </tbody>
         </table>

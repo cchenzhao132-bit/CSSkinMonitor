@@ -43,20 +43,27 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   };
   const WEAR_ZH2 = { fn: 'Factory New', mw: 'Minimal Wear', ft: 'Field-Tested', ww: 'Well-Worn', bs: 'Battle-Scarred' };
   const median = arr => { const s = [...arr].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  const LIQ_MIN = 10;   // 三方挂牌/成交量合计门槛（无成交数据时低于此值 → 卖出价不可执行）
+  const liqOf = key => {
+    const c = catalog[key];
+    return c ? (c.skinport && c.skinport.qty || 0) + (c.mcsgo && c.mcsgo.volume || 0) + (c.waxpeer && c.waxpeer.count || 0) : 0;
+  };
   // 产出卖出价（成交口径，抗天价挂牌）：优先 7 日成交中位（Skinport，成交量≥3），
-  // 否则 Steam 挂牌与三方 min 的中位数。与前端 alchSalePrice 同口径
+  // 否则 Steam 挂牌与三方 min 的中位数。与前端 alchSalePrice 同口径；
+  // 无成交且流动性不足 → illiquid（卖出价不可执行，最赚榜剔除）
   const outPriceOf = (baseName, wearKey, st) => {
     const prefix = st ? (baseName.indexOf('★ ') === 0 ? '★ StatTrak™ ' : 'StatTrak™ ') : '';
     const key = prefix + baseName + ' (' + WEAR_ZH2[wearKey] + ')';
     const c = catalog[key];
-    if (c && c.hist && c.hist.p7 > 0) return { price: c.hist.p7, src: 'deal' };
+    if (c && c.hist && c.hist.p7 > 0) return { price: c.hist.p7, src: 'deal', illiquid: false };
     const steamPr = steam[key] > 0 ? steam[key] : null;
     const ps = [steamPr,
       c && c.skinport && c.skinport.min > 0 ? c.skinport.min * RATE : null,
       c && c.mcsgo && c.mcsgo.price > 0 ? c.mcsgo.price * RATE : null,
       c && c.waxpeer && c.waxpeer.min > 0 ? c.waxpeer.min * RATE : null
     ].filter(v => v > 0);
-    return ps.length ? { price: median(ps), src: 'median' } : null;
+    if (!ps.length) return null;
+    return { price: median(ps), src: 'median', illiquid: liqOf(key) < LIQ_MIN };
   };
 
   const results = [];
@@ -89,16 +96,17 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
         // 产出全都有价才参与（否则 EV 低估会误判最赔）；EV 统一 ÷(1+FEE) 折卖方所得
         // 产出按成交口径（outPriceOf），输入仍按挂牌价（买入即付最低挂牌）
         const evOfAvg = avg => {
-          let ev = 0, ok = true;
+          let ev = 0, illq = false, ok = true;
           for (const o of outPool) {
             const f = o.f[0] + avg * (o.f[1] - o.f[0]);
             const gloves = /Gloves|Glove/.test(o.n);
             const useSt = st && !gloves;
             const pr = outPriceOf(o.n, wearBandOf(f), useSt);
             if (!pr) { ok = false; break; }
+            if (pr.illiquid) illq = true;
             ev += pr.price / (1 + FEE) / outPool.length;
           }
-          return ok ? ev : null;
+          return ok ? { ev, illq } : null;
         };
         const NB = 201;
         const dp = Array.from({ length: 11 }, () => Array(NB).fill(null));
@@ -124,7 +132,7 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
             cur = prev.b; k--;
           }
           const agg = {};
-          items.forEach(v => { const key = v.n + '|' + v.band; (agg[key] = agg[key] || { cn: v.cn, band: v.band, price: v.price, count: 0 }).count++; });
+          items.forEach(v => { const key = v.n + '|' + v.band; (agg[key] = agg[key] || { n: v.n, cn: v.cn, band: v.band, price: v.price, count: 0 }).count++; });
           return Object.values(agg);
         };
         // 全桶扫描最优：同一磨损段内 EV 不变、成本随浮动连续下降，最优在段高端——
@@ -133,27 +141,44 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
         let best = null;
         for (let b = 0; b < NB; b++) {
           if (!dp[10][b]) continue;
-          const avg = b * 0.05 / 10, cost = dp[10][b].c, ev = evOfAvg(avg);
-          if (ev == null || cost <= 0) continue;
-          const net = ev - cost;
-          if (!best || net > best.net) best = { avg, cost, ev, net, recipe: mkRecipe(b) };
+          const avg = b * 0.05 / 10, cost = dp[10][b].c;
+          const res = evOfAvg(avg);
+          if (res == null || cost <= 0) continue;
+          const net = res.ev - cost;
+          if (!best || net > best.net) best = { avg, cost, ev: res.ev, illq: res.illq, net, recipe: mkRecipe(b) };
         }
         combos++;
-        if (best) results.push({
-          crate: crate.name, cn: crate.cn || crate.name, tier, st,
-          avg: +best.avg.toFixed(3), cost: +best.cost.toFixed(2), ev: +best.ev.toFixed(2), net: +best.net.toFixed(2),
-          roi: best.cost > 0 ? +(best.net / best.cost * 100).toFixed(1) : 0,
-          recipe: best.recipe.map(r => ({ cn: r.cn, band: WEAR_ZH[r.band], count: r.count, price: +r.price.toFixed(2) }))
-        });
+        if (best) {
+          // 输入侧供给校验：某输入行的三方挂牌/成交量少于所需件数 → 现实中凑不齐，标记不可执行
+          let inputIllq = false;
+          for (const line of best.recipe) {
+            const prefix = st ? (line.n.indexOf('★ ') === 0 ? '★ StatTrak™ ' : 'StatTrak™ ') : '';
+            if (liqOf(prefix + line.n + ' (' + WEAR_ZH2[line.band] + ')') < line.count) { inputIllq = true; break; }
+          }
+          const illiquid = best.illq || inputIllq;
+          results.push({
+            crate: crate.name, cn: crate.cn || crate.name, tier, st,
+            avg: +best.avg.toFixed(3), cost: +best.cost.toFixed(2), ev: +best.ev.toFixed(2), net: +best.net.toFixed(2),
+            roi: best.cost > 0 ? +(best.net / best.cost * 100).toFixed(1) : 0,
+            illiquid,
+            ...(illiquid ? { illqReason: best.illq && inputIllq ? '产出与输入流动性不足' : best.illq ? '产出流动性不足' : '输入流动性不足' } : {}),
+            recipe: best.recipe.map(r => ({ cn: r.cn, band: WEAR_ZH[r.band], count: r.count, price: +r.price.toFixed(2) }))
+          });
+        }
       }
     }
   }
 
   results.sort((a, b) => b.net - a.net);
-  const best = results.slice(0, TOP_N);
+  // 最赚榜只保留「可执行」配方：产出低流动性（无成交且挂牌稀少）或输入凑不齐的剔除，
+  // 但如实计数（避免数字静默消失）；最赔榜保留全部（风险提示不分流动性）
+  const sellable = results.filter(r => !r.illiquid);
+  const excludedIlliquid = results.filter(r => r.illiquid && r.net > 0).length;
+  const best = sellable.slice(0, TOP_N);
   const worst = results.slice(-TOP_N).reverse();
   fs.writeFileSync(path.join(CACHE, 'alch-scan.json'), JSON.stringify({
     updatedAt: new Date().toISOString().slice(0, 10), feePct: 15, combos, skipped,
+    excludedIlliquid,
     best, worst
   }));
   console.log(`扫描完成：${combos} 个组合（跳过 ${skipped}）`);
