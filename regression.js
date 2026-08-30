@@ -39,8 +39,9 @@ const { RAW, WEARDB, HISTORY, TRADEUP, ALL_ITEMS, RISING, FALLING, FLAT } = env;
 // fixture 模式：校验 fixture 内嵌的引擎模板与当前 crawler-templates/engine.js 一致，
 // 防止 engine.js 改动后 fixture 未重新生成导致测到旧逻辑。
 if (FIXTURE) {
-  const engineNow = fs.readFileSync(path.join(ROOT, 'crawler-templates', 'engine.js'), 'utf8');
-  ok(fs.readFileSync(DATA_FILE, 'utf8').endsWith(engineNow),
+  const norm = s => s.replace(/\r\n?/g, '\n');   // 统一行尾：checkout 后 fixture 与 engine.js 的 LF/CRLF 可能不一致
+  const engineNow = norm(fs.readFileSync(path.join(ROOT, 'crawler-templates', 'engine.js'), 'utf8'));
+  ok(norm(fs.readFileSync(DATA_FILE, 'utf8')).endsWith(engineNow),
     'fixture 内嵌引擎模板与 engine.js 一致', '不一致请运行 `node build-fixture.js` 重新生成');
 }
 

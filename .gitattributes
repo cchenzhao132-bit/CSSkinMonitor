@@ -4,3 +4,5 @@
 *.jpg binary
 *.ico binary
 *.exe binary
+# 生成的测试数据：不进行行尾转换，避免重生成时产生全文件 diff
+tests/fixture-data.js -text
