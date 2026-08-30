@@ -134,6 +134,7 @@ function buildItem(def) {
     cat: def.cat, catName: (CAT[def.cat] || CAT.misc).name,
     hot: def.hot === 1,                     // 热门池标记（最近一次爬取刷新过价格）
     ref: def.ref || null,                   // 第三方市场参考价 { sp: Skinport, mc: market.csgo, wx: Waxpeer }
+    p7: def.p7 > 0 ? def.p7 : null,         // 7 日成交中位价（Skinport，成交量≥3）——炼金产出"成交口径"定价
     refOnly: def.refOnly === 1,             // Steam 未采集、仅第三方参考价的条目（不进榜单）
     cn: def.cn || def.name,                 // 中文显示名
     sil: def.sil

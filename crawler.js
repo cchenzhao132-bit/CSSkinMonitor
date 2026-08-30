@@ -642,6 +642,8 @@ function buildWearDB(cache) {
     };
     return Object.keys(ref).length ? ref : null;
   };
+  // 7 日成交中位价（Skinport last_7_days.median，成交量≥3 才有）——炼金产出"成交口径"定价用
+  const p7Of = c => (c && c.hist && c.hist.p7 > 0) ? c.hist.p7 : null;
   const RAW = entries.map((e, i) => ({
     id: i + 1,
     name: e.name,
@@ -652,6 +654,7 @@ function buildWearDB(cache) {
     sil: silOf(e.name, e.cat || catOf(e.type, e.name)),
     hot: e.seen === TODAY ? 1 : 0,                         // 热门池标记（榜单数据源）
     ref: refOf(catalogItems[e.name]),                      // 第三方参考价（可选）
+    ...(p7Of(catalogItems[e.name]) ? { p7: p7Of(catalogItems[e.name]) } : {}),
     icon: e.icon,
     imgKey: md5(e.name)
   }));
@@ -677,6 +680,7 @@ function buildWearDB(cache) {
       ref,
       ...(iconFor(name) ? { icon: iconFor(name) } : {}),   // 第三方条目补官方图标（前缀/磨损剥离匹配）
       ...(c.hist ? { hist: c.hist.a, chgPrev: c.hist.p7 } : {}),
+      ...(p7Of(c) ? { p7: p7Of(c) } : {}),
       refOnly: 1,
       imgKey: md5(name)
     });
@@ -718,6 +722,7 @@ function buildWearDB(cache) {
       rarity: e.rarity, cat: e.cat, sil: e.sil,
       ...(e.hot ? { hot: 1 } : {}),
       ...(e.ref ? { ref: e.ref } : {}),
+      ...(e.p7 > 0 ? { p7: e.p7 } : {}),   // 7 日成交中位（炼金产出成交口径定价）
       ...(e.refOnly ? { refOnly: 1 } : {}),
       ...(e.hist ? { hist: e.hist, chgPrev: e.chgPrev } : {})
     };

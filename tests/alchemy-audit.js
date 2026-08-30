@@ -49,8 +49,9 @@ const alchSrc = fs.readFileSync(path.join(PROJ, 'app', 'js', '05-alchemy.js'), '
 const segStart = alchSrc.indexOf('let alchIdx');
 const segEnd = alchSrc.indexOf('function renderAlchemy');
 if (segStart < 0 || segEnd < 0) { console.error('无法抽取 05-alchemy.js 函数段'); process.exit(1); }
-vm.runInThisContext(alchSrc.slice(segStart, segEnd) + '\n;globalThis.__opt = alchOptimize; globalThis.__normAdj = normAdj; globalThis.__wearBandOf = wearBandOf;', { filename: '05-alchemy.js' });
+vm.runInThisContext(alchSrc.slice(segStart, segEnd) + '\n;globalThis.__opt = alchOptimize; globalThis.__normAdj = normAdj; globalThis.__wearBandOf = wearBandOf; globalThis.__median = median; globalThis.__sale = alchSalePrice;', { filename: '05-alchemy.js' });
 const alchOptimize = globalThis.__opt, normAdj = globalThis.__normAdj, wearBandOf = globalThis.__wearBandOf;
+const median = globalThis.__median, alchSalePrice = globalThis.__sale;
 
 console.log(`数据：ALL_ITEMS ${ALL_ITEMS.length} 件 · TRADEUP 集合 ${TRADEUP.crates.length} 个`);
 
@@ -77,6 +78,29 @@ console.log('\n[0] 归一化浮动公式（2024-10 规则）');
   const outF = 0 + 0.125 * (0.3 - 0);
   if (!(near(outF, 0.0375) && wearBandOf(outF) === 'fn')) { badV++; fail(`端到端磨损映射异常: outF=${outF} band=${wearBandOf(outF)}`); }
   badV === 0 ? ok(`${cases.length} 个标准向量 + 钳制/零范围防御 + 端到端映射全过`) : null;
+}
+
+// ---------- 0b) 卖出价成交口径（抗天价挂牌） ----------
+console.log('\n[0b] 产出卖出价：median 与 alchSalePrice');
+{
+  let badV = 0;
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  if (!near(median([5, 1, 9]), 5)) { badV++; fail('median 奇数长度错误'); }
+  if (!near(median([1, 2, 3, 4]), 2.5)) { badV++; fail('median 偶数长度错误'); }
+  if (!near(median([100]), 100)) { badV++; fail('median 单元素错误'); }
+  // alchSalePrice：有 p7 的条目应等于 p7（成交中位），且 ≤ 该皮肤各来源最高价
+  let checked = 0, badSale = 0;
+  for (const it of ALL_ITEMS) {
+    if (!(it.p7 > 0) || !it.ref) continue;
+    const r = alchSalePrice(it.name.replace(/ \((Factory New|Minimal Wear|Field-Tested|Well-Worn|Battle-Scarred)\)$/, ''), (it.name.match(/ \(Factory New\)$/) ? 'fn' : it.name.match(/ \(Minimal Wear\)$/) ? 'mw' : it.name.match(/ \(Field-Tested\)$/) ? 'ft' : it.name.match(/ \(Well-Worn\)$/) ? 'ww' : 'bs'), false);
+    if (!r) continue;
+    checked++;
+    if (!near(r.price, it.p7)) { badSale++; if (badSale <= 3) fail(`${it.name}: sale ${r.price} ≠ p7 ${it.p7}`); }
+    if (r.srcTag !== '7日成交中位') { badSale++; fail(`${it.name}: srcTag=${r.srcTag}，应为 7日成交中位`); }
+    if (checked >= 200) break;
+  }
+  if (!badSale && checked >= 50) ok(`median 3 向量 + alchSalePrice 成交口径抽检 ${checked} 条全过`);
+  else if (checked < 50) console.log(`  ⚠ 带 p7 条目抽检不足（${checked}），跳过强断言`);
 }
 
 // ---------- 1) 池去重 ----------

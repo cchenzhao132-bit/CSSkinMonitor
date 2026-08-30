@@ -42,6 +42,22 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
     return rp ? { price: rp, src: 'ref' } : null;
   };
   const WEAR_ZH2 = { fn: 'Factory New', mw: 'Minimal Wear', ft: 'Field-Tested', ww: 'Well-Worn', bs: 'Battle-Scarred' };
+  const median = arr => { const s = [...arr].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  // 产出卖出价（成交口径，抗天价挂牌）：优先 7 日成交中位（Skinport，成交量≥3），
+  // 否则 Steam 挂牌与三方 min 的中位数。与前端 alchSalePrice 同口径
+  const outPriceOf = (baseName, wearKey, st) => {
+    const prefix = st ? (baseName.indexOf('★ ') === 0 ? '★ StatTrak™ ' : 'StatTrak™ ') : '';
+    const key = prefix + baseName + ' (' + WEAR_ZH2[wearKey] + ')';
+    const c = catalog[key];
+    if (c && c.hist && c.hist.p7 > 0) return { price: c.hist.p7, src: 'deal' };
+    const steamPr = steam[key] > 0 ? steam[key] : null;
+    const ps = [steamPr,
+      c && c.skinport && c.skinport.min > 0 ? c.skinport.min * RATE : null,
+      c && c.mcsgo && c.mcsgo.price > 0 ? c.mcsgo.price * RATE : null,
+      c && c.waxpeer && c.waxpeer.min > 0 ? c.waxpeer.min * RATE : null
+    ].filter(v => v > 0);
+    return ps.length ? { price: median(ps), src: 'median' } : null;
+  };
 
   const results = [];
   let combos = 0, skipped = 0;
@@ -71,13 +87,14 @@ const clampF = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
         }
         if (!variants.length) { skipped++; continue; }
         // 产出全都有价才参与（否则 EV 低估会误判最赔）；EV 统一 ÷(1+FEE) 折卖方所得
+        // 产出按成交口径（outPriceOf），输入仍按挂牌价（买入即付最低挂牌）
         const evOfAvg = avg => {
           let ev = 0, ok = true;
           for (const o of outPool) {
             const f = o.f[0] + avg * (o.f[1] - o.f[0]);
             const gloves = /Gloves|Glove/.test(o.n);
             const useSt = st && !gloves;
-            const pr = priceOf(o.n, wearBandOf(f), useSt);
+            const pr = outPriceOf(o.n, wearBandOf(f), useSt);
             if (!pr) { ok = false; break; }
             ev += pr.price / (1 + FEE) / outPool.length;
           }
