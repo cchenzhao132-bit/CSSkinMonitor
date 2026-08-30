@@ -96,6 +96,24 @@ const HIST_MAX_DAYS = 60;                     // 每日快照保留天数（控�
 const md5 = s => crypto.createHash('md5').update(s).digest('hex');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// 爬虫单实例锁：防止两个爬虫进程并行写同一数据目录（缓存/快照/目录互相覆盖丢数据）
+const LOCK_FILE = path.join(CACHE_DIR, '.lock');
+function acquireLock() {
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  try {
+    if (fs.existsSync(LOCK_FILE)) {
+      // 残留锁检查：持锁进程已死则接管（ESRCH = 进程不存在）
+      const pid = parseInt(fs.readFileSync(LOCK_FILE, 'utf8').trim(), 10);
+      try { process.kill(pid, 0); } catch (e) { fs.rmSync(LOCK_FILE, { force: true }); }
+    }
+    fs.writeFileSync(LOCK_FILE, String(process.pid), { flag: 'wx' });
+    process.on('exit', () => { try { fs.rmSync(LOCK_FILE, { force: true }); } catch (e) {} });
+    return true;
+  } catch (e) {
+    return e.code === 'ENOENT' ? acquireLock() : false;   // wx 冲突 = 已有实例
+  }
+}
+
 function curlJSON(url) {
   const out = execFileSync('curl', [
     '-sL', '--max-time', '30',
@@ -276,6 +294,11 @@ function buildWearDB(cache) {
 
 // ---------- 主流程 ----------
 (async () => {
+  // 单实例锁：有其他爬虫进程在写同一数据目录时拒绝启动（防并行写坏缓存/快照）
+  if (!acquireLock()) {
+    console.error('检测到另一个爬虫实例正在运行（锁文件：' + LOCK_FILE + '），本次退出。');
+    process.exit(1);
+  }
   fs.mkdirSync(CACHE_DIR, { recursive: true });
   fs.mkdirSync(IMG_DIR, { recursive: true });
 
