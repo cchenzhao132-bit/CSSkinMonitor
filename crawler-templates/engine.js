@@ -28,16 +28,21 @@ function changeClassOf(pct) {
   return 'flat';
 }
 
-// 7 日涨跌锚点：按时间戳寻找「今天-7 天 ± win7d 天」内的真实历史点。
+// 7 日涨跌锚点：按时间戳寻找「UTC 今天-7 天 ± win7d 天」内的真实历史点。
+// 时区口径与 crawler.js 完全一致：crawler 用 new Date().toISOString().slice(0,10)（UTC 日期）
+// 写入快照/锚点日期，这里同样按 UTC 解析（date+'T00:00:00Z'），避免本地时区偏移 8 小时
+// 造成「今天」的快照被当成「昨天」（此前用 Date.parse(date+'T00:00:00') 本地解析）。
 // 找不到（如仅剩 15/45 天前锚点）→ 返回 null，调用方标记「数据不足」，
 // 禁止用最老锚点静默冒充 7 日（v7.0 数据契约；此前 priceHistory[length-8] 会退化成 15/45 日）。
 function find7dAnchor(priceHistory) {
   if (!priceHistory || priceHistory.length === 0) return null;
   const T = CHANGE_THRESHOLDS;
-  const target = TODAY_ANCHOR.getTime() - 7 * 86400000;
+  // UTC 今天（与 crawler 的 TODAY 同口径）；目标 = UTC 今天 00:00 − 7 天
+  const utcToday = new Date().toISOString().slice(0, 10);
+  const target = Date.parse(utcToday + 'T00:00:00Z') - 7 * 86400000;
   let best = null, bestDiff = Infinity;
   for (const p of priceHistory) {
-    const t = Date.parse(p.date + 'T00:00:00');
+    const t = Date.parse(p.date + 'T00:00:00Z');   // 一律按 UTC 解析（crawler 写入口径）
     if (isNaN(t)) continue;
     const diff = Math.abs(t - target);
     if (diff < bestDiff) { bestDiff = diff; best = p; }

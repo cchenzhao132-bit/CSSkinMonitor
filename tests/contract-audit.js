@@ -52,14 +52,15 @@ console.log(`数据：${FIXTURE ? 'fixture' : '全量'} · ${ALL_ITEMS.length} �
 console.log('\n[1] 7 日涨跌时间窗口（find7dAnchor）');
 {
   const today = new Date();
-  // 本地时区日期串（引擎用 Date.parse(date+'T00:00:00') 本地解析；toISOString 是 UTC 日期，
-  // 在 GMT+8 下会偏移 8 小时导致"6 天前"的点反而更接近 7 日目标——测试必须与引擎同口径）
+  // UTC 日期串（引擎与 crawler 均以 toISOString 的 UTC 日期为口径；find7dAnchor 按
+  // date+'T00:00:00Z' 解析。测试必须与引擎同口径，禁止本地时区日期串）
   const iso = off => {
     const d = new Date(today);
     d.setDate(d.getDate() - off);
-    const p = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    return d.toISOString().slice(0, 10);
   };
+  // 与引擎同口径的「锚点距今天」计算（UTC 日期 → UTC 毫秒）
+  const daysAgo = dateStr => (Date.parse(new Date().toISOString().slice(0, 10) + 'T00:00:00Z') - Date.parse(dateStr + 'T00:00:00Z')) / 86400000;
   const P = (off, price) => ({ date: iso(off), price });
   const T = CHANGE_THRESHOLDS;
 
@@ -79,14 +80,14 @@ console.log('\n[1] 7 日涨跌时间窗口（find7dAnchor）');
   {
     const hist = Array.from({ length: 15 }, (_, i) => P(14 - i, 100 - i));
     const a = find7dAnchor(hist);
-    const off = a ? (today.getTime() - Date.parse(a.date + 'T00:00:00')) / 86400000 : NaN;
+    const off = a ? daysAgo(a.date) : NaN;
     if (!a || Math.abs(off - 7) > T.win7d) fail(`15 天历史应命中 7 天前锚点，实际 ${a ? off.toFixed(2) + ' 天前' : 'null'}`);
   }
   // 45 天历史：同样命中 7 天前，而非最老的 45 天前（旧实现 length-8 会退化成 45 日）
   {
     const hist = Array.from({ length: 45 }, (_, i) => P(44 - i, 100 - i));
     const a = find7dAnchor(hist);
-    const off = a ? (today.getTime() - Date.parse(a.date + 'T00:00:00')) / 86400000 : NaN;
+    const off = a ? daysAgo(a.date) : NaN;
     if (!a || Math.abs(off - 7) > T.win7d)
       fail(`45 天历史应命中 7 天前锚点，实际 ${a ? off.toFixed(2) + ' 天前' : 'null'}（旧 bug：会取 45 天前）`);
   }

@@ -168,6 +168,10 @@
     const noChg = item.refOnly && !item.historyReal;   // 第三方参考条目：历史快照不足时不显示涨跌
     const noData7 = !item.chgAvail;                    // v7.0：无 7 日锚点 → 数据不足
     const noChgView = noChg || noData7;
+    // v7.0：有涨跌数字但历史为模拟序列（Steam 条目快照 <8 天、无第三方锚点）→ 明确标注「模拟」，
+    // 与真实快照/成交中位算出的涨跌区分开（审查意见：用户必须能分辨数字口径）
+    const simulated = item.chgAvail && !item.historyReal;
+    const chgSuffix = simulated ? ' <span class="w-en" style="color:var(--text-faint)">模拟</span>' : '';
     const matched = kw && (item.name.toLowerCase().includes(kw) || (item.cn || '').toLowerCase().includes(kw));
     const badge = idx < 3 ? `top${idx + 1}` : '';
     const disp = item.cn || item.name;
@@ -199,7 +203,7 @@
               ? '<div class="change-percent" style="background:rgba(255,255,255,0.05);color:var(--text-faint)">快照积累中</div>'
               : `<div class="change-amount ${up ? 'up-c' : 'down-c'}">${fmtSigned(item.changeAmount)}</div>
             <div class="change-percent ${up ? 'up-c up-bg' : 'down-c down-bg'}">
-              <span class="arrow">${up ? '▲' : '▼'}</span>${up ? '+' : ''}${item.changePercent.toFixed(2)}%
+              <span class="arrow">${up ? '▲' : '▼'}</span>${up ? '+' : ''}${item.changePercent.toFixed(2)}%${chgSuffix}
             </div>`}
           </div>
           <button class="fav-btn ${isFav(item.name) ? 'on' : ''}" data-name="${esc(item.name)}" title="${isFav(item.name) ? '取消收藏' : '收藏'}">${isFav(item.name) ? '★' : '☆'}</button>

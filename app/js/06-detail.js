@@ -92,6 +92,9 @@
     const up = item.changePercent > 0;
     const noChg = item.refOnly && !item.historyReal;   // 第三方参考条目：历史快照不足时不显示涨跌
     const noData7 = !item.chgAvail;                    // v7.0：无 7 日锚点（短历史/仅剩 15/45 日锚点）→ 数据不足
+    // v7.0：模拟序列涨跌标注（Steam 条目快照 <8 天无真实历史时的演示口径，与真实快照/成交中位区分）
+    const simulated = item.chgAvail && !item.historyReal;
+    const simTag = simulated ? ' <span class="w-en" style="color:var(--text-faint)">模拟</span>' : '';
     const his = item.priceHistory || [];
     const d30 = pctBetween(his, 30);
     const d90 = pctBetween(his, 90);
@@ -125,7 +128,7 @@
           <div class="detail-quick">
             ${noChg || noData7
               ? '<span style="color:var(--text-faint)">7日涨跌：数据不足（7 日锚点未积累到）</span>'
-              : `7日 <span class="${up ? 'up-c' : 'down-c'}">${up ? '+' : ''}${item.changePercent.toFixed(2)}%</span>
+              : `7日 <span class="${up ? 'up-c' : 'down-c'}">${up ? '+' : ''}${item.changePercent.toFixed(2)}%</span>${simTag}
             · 30日 <span class="${(d30 || 0) > 0 ? 'up-c' : 'down-c'}">${fmtPct(d30)}</span>
             · 90日 <span class="${(d90 || 0) > 0 ? 'up-c' : 'down-c'}">${fmtPct(d90)}</span>`}
           </div>
@@ -169,7 +172,7 @@
       </div>
 
       <div class="detail-stats">
-        <div class="dstat"><div class="ds-label">7日涨跌幅</div><div class="ds-value ${up ? 'up-c' : 'down-c'}">${noChg || noData7 ? '—' : (up ? '+' : '') + item.changePercent.toFixed(2) + '%'}</div></div>
+        <div class="dstat"><div class="ds-label">7日涨跌幅${simulated ? '（模拟）' : ''}</div><div class="ds-value ${up ? 'up-c' : 'down-c'}">${noChg || noData7 ? '—' : (up ? '+' : '') + item.changePercent.toFixed(2) + '%'}</div></div>
         <div class="dstat"><div class="ds-label">30日涨跌幅</div><div class="ds-value ${(d30 || 0) > 0 ? 'up-c' : 'down-c'}">${noChg ? '—' : fmtPct(d30)}</div></div>
         <div class="dstat"><div class="ds-label">7日分类</div><div class="ds-value" style="font-size:16px">${item.changeClass !== 'none' ? CHG_NAME[item.changeClass] : '—'}</div></div>
         <div class="dstat"><div class="ds-label">90日波动率</div><div class="ds-value">${noChg ? '—' : vola == null ? '—' : vola.toFixed(2) + '%'}</div></div>

@@ -21,14 +21,24 @@ const path = require('path');
 const vm = require('vm');
 const PROJ = path.join(__dirname, '..');
 
+// 数据源：--fixture / FIXTURE=1 时用 tests/fixture-data.js（CI 无全量 app/data.js）
+const FIXTURE = process.argv.includes('--fixture') || process.env.FIXTURE === '1';
+const DATA_FILE = FIXTURE
+  ? path.join(PROJ, 'tests', 'fixture-data.js')
+  : path.join(PROJ, 'app', 'data.js');
+if (!fs.existsSync(DATA_FILE)) {
+  console.error(`数据文件不存在：${DATA_FILE}（先运行 node crawler.js --regen 或加 --fixture）`);
+  process.exit(1);
+}
+
 let failures = 0;
 const fail = msg => { failures++; console.log('  ❌', msg); };
 const ok = msg => console.log('  ✅', msg);
 
-// ---------- 环境：加载 data.js + 抽取 05-alchemy.js 纯函数段 ----------
+// ---------- 环境：加载数据 + 抽取 05-alchemy.js 纯函数段 ----------
 globalThis.window = globalThis;   // data.js 末尾有 window.__imgFallback 赋值
 vm.runInThisContext(
-  fs.readFileSync(path.join(PROJ, 'app', 'data.js'), 'utf8') + '\n;globalThis.__ALL = ALL_ITEMS; globalThis.__TR = TRADEUP; globalThis.__SCAN = (typeof ALCHSCAN !== "undefined") ? ALCHSCAN : null;',
+  fs.readFileSync(DATA_FILE, 'utf8') + '\n;globalThis.__ALL = ALL_ITEMS; globalThis.__TR = TRADEUP; globalThis.__SCAN = (typeof ALCHSCAN !== "undefined") ? ALCHSCAN : null;',
   { filename: 'data.js' }
 );
 const ALL_ITEMS = globalThis.__ALL, TRADEUP = globalThis.__TR, ALCHSCAN_EMBED = globalThis.__SCAN;

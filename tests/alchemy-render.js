@@ -1,9 +1,21 @@
 // 渲染级验证：用 jsdom 真实加载 index.html + 全部脚本，导航到炼金页，检查关键区块
 'use strict';
+const fs = require('fs');
 const path = require('path');
-const { JSDOM } = require(path.join('C:', 'Users', 'chenzhao', 'WorkBuddy', '2026-08-29-11-04-52', 'cs-skin-monitor', 'node_modules', 'jsdom'));
+const { JSDOM } = require(path.join(__dirname, '..', 'node_modules', 'jsdom'));
 
-const APP = 'C:/Users/chenzhao/WorkBuddy/2026-08-29-11-04-52/cs-skin-monitor/app';
+const APP = path.join(__dirname, '..', 'app');
+// CI / 外部 clone 无全量 app/data.js（生成物不入库）→ 用 fixture 补齐供 index.html 加载
+const DATA_JS = path.join(APP, 'data.js');
+const FIXTURE_JS = path.join(__dirname, 'fixture-data.js');
+if (!fs.existsSync(DATA_JS)) {
+  if (!fs.existsSync(FIXTURE_JS)) {
+    console.error('缺 app/data.js 且无 tests/fixture-data.js（先运行 node crawler.js --regen 或 build-fixture.js）');
+    process.exit(1);
+  }
+  fs.copyFileSync(FIXTURE_JS, DATA_JS);
+  console.log('  ⚠ 已复制 fixture → app/data.js（供渲染测试加载）');
+}
 let failures = 0;
 const fail = m => { failures++; console.log('  ❌', m); };
 const ok = m => console.log('  ✅', m);

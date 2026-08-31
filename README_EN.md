@@ -8,6 +8,10 @@ A **zero-dependency, fully local** desktop app for monitoring CS2 (CS:GO) skin m
 
 ![screenshot](screenshot.png)
 
+## Releases
+
+- **v7.0.0 (current)**: data-contract refactor — the 7-day change window is anchored by timestamp (never silently falls back to 15/45-day anchors), unified change thresholds, history edge-case guards, and business-invariant tests. See [v7.0 release notes (中文)](docs/v7.0-更新说明.md) and [CHANGELOG](CHANGELOG.md)
+
 ## Features
 
 - **Gainers / Losers boards**: covers all scraped Steam entries (~7,000+), sorted by 7-day change; gold/silver/bronze badges for the top 3, red for gains and green for losses. The hot pool (~200 items) refreshes daily in real time; third-party reference entries automatically join the boards once 8+ days of history accumulate
@@ -24,8 +28,8 @@ A **zero-dependency, fully local** desktop app for monitoring CS2 (CS:GO) skin m
 | Current price / wear-tier listings / category / images | Public Steam Market endpoints | Hot pool refreshed daily; full catalog as of the last deep crawl |
 | **Third-party reference prices** (detail page) | [Skinport](https://docs.skinport.com/), [market.csgo.com](https://market.csgo.com/en/api), Waxpeer public APIs | Synced on every crawler run (1 request per source); the detail page shows the spread vs. Steam |
 | Unified item catalog | Union of third-party catalogs (~30,000 entries) | Used for coverage accounting and deep-crawl gap detection |
-| Price history | Daily snapshots in `cache/price-history.json` | **Grows more real over time**; items with < 8 days of history fall back to a locally simulated trend (labeled in the UI) |
-| 7-day change | Computed from price history | Real once ≥ 8 days of snapshots exist; simulated before that |
+| Price history | Daily snapshots in `cache/price-history.json` | **Grows more real over time**; items with < 8 days of history fall back to a locally simulated trend (labeled as "模拟/simulated" in the UI, v7.0) |
+| 7-day change | Computed from price history, **anchored by timestamp to "today − 7 days ± 2 days"** (v7.0 contract) | Real once ≥ 8 days of snapshots exist; if no anchor is available (e.g. only 15/45-day points), it honestly shows "数据不足 / insufficient data" — **never silently downgraded** |
 
 - **Multi-source principle**: Steam listing prices are the only market benchmark (this app's stance). Third-party spot-market prices (Skinport / market.csgo / Waxpeer) are real-currency cash prices, typically 20–30% below Steam wallet prices, shown on the detail page as cross-platform reference only — always labeled, never mixed with Steam prices
 - Exchange rate: fixed USD → CNY at `7.25` (adjustable via `--rate`); not directly comparable with quotes from Chinese platforms (BUFF / YouPin)
@@ -120,6 +124,7 @@ cs-skin-monitor/
 ├── build-names.js               # Chinese item-name mapping builder (ByMykel zh-CN, 8 endpoints)
 ├── regression.js                # regression tests (data-layer assertions + route rendering checks, npm test)
 ├── crawler-templates/engine.js  # runtime engine (real history hookup / three boards / categories / SVG fallback)
+├── tests/                       # contract audit (7-day window/thresholds/boundaries), alchemy audit, render check, fixture data
 ├── app/                         # frontend (vanilla HTML/CSS/JS + local ECharts, no build step)
 │   ├── index.html / styles.css
 │   ├── js/                      # modular frontend (core/router/views-list/fav/alchemy/detail/boot)
@@ -127,6 +132,20 @@ cs-skin-monitor/
 ├── cache/                       # crawler cache + daily price snapshots + multi-source catalog (gitignored)
 └── requirements.txt
 ```
+
+## Tests
+
+Four layers (data assertions + headless-Edge route rendering + jsdom search E2E + data-contract audit):
+
+```
+node regression.js              # full mode: needs local app/data.js + Edge
+node regression.js --fixture    # fixture mode: uses tests/fixture-data.js, no full crawl needed
+npm run test:contract           # data-contract audit (7-day window / thresholds / history edges / index equivalence)
+npm run test:alchemy            # offline alchemy audit (normalized float formula / EV pricing / radar consistency)
+npm run test:render             # jsdom render-level verification (alchemy page key sections)
+```
+
+CI (`.github/workflows/regression.yml`) runs all four in fixture mode on push / PR.
 
 ## Tech Choices
 

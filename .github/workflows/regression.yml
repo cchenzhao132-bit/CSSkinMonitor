@@ -20,3 +20,12 @@ jobs:
 
       - name: Run regression (fixture mode)
         run: node regression.js --fixture
+
+      - name: Run contract audit (data contract invariants)
+        run: node tests/contract-audit.js --fixture
+
+      - name: Run alchemy audit
+        run: node tests/alchemy-audit.js --fixture
+
+      - name: Run render-level verification
+        run: node tests/alchemy-render.js
