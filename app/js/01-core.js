@@ -182,14 +182,15 @@
     'sticker', 'graffiti', 'music', 'charm', 'patch', 'agent', 'capsule', 'case', 'misc'];
   const WEAPON_CATS = ['rifle', 'sniper', 'pistol', 'smg', 'shotgun', 'mg', 'knife', 'glove'];
   const COL_LABEL = { w: '普通版', st: 'StatTrak™ 版', sv: '纪念版' };
-  // 涨跌分类（7 日口径；与 engine 的 changeClass 键一致）
+  // 涨跌分类（7 日口径；与 engine 的 changeClass 键一致，阈值引用引擎统一配置——v7.0 契约）
+  const _T = window.__CHANGE_THRESHOLDS || { rising: 0.15, noticeable: 3, strong: 10 };
   const CHG_CLASS = [
-    { key: 'up2', name: '大涨', desc: '≥ +10%' },
-    { key: 'up1', name: '上涨', desc: '+3 ~ 10%' },
-    { key: 'flat', name: '盘整', desc: '±3%' },
-    { key: 'down1', name: '下跌', desc: '-3 ~ 10%' },
-    { key: 'down2', name: '大跌', desc: '≤ -10%' },
-    { key: 'none', name: '无数据', desc: '历史快照积累中' }
+    { key: 'up2', name: '大涨', desc: `≥ +${_T.strong}%` },
+    { key: 'up1', name: '上涨', desc: `+${_T.noticeable} ~ ${_T.strong}%` },
+    { key: 'flat', name: '盘整', desc: `±${_T.noticeable}%` },
+    { key: 'down1', name: '下跌', desc: `-${_T.noticeable} ~ ${_T.strong}%` },
+    { key: 'down2', name: '大跌', desc: `≤ -${_T.strong}%` },
+    { key: 'none', name: '无数据', desc: '7 日锚点不足，涨跌积累中' }
   ];
   const CHG_NAME = {};
   CHG_CLASS.forEach(c => CHG_NAME[c.key] = c.name);
@@ -210,6 +211,17 @@
     const m = variantOf(name).base.match(WEAR_SUFFIX_RE);
     return m ? WEAR_EN_KEY[m[1]] : 'van';
   };
-  // 找当前库里某家族某版本某磨损的条目
-  const findVariant = (base, wk, col) => ALL_ITEMS.find(i =>
-    variantOf(i.name).col === col && famKeyOf(i.name) === base && wearKeyOf(i.name) === wk);
+  // 找当前库里某家族某版本某磨损的条目（v7.0：启动建索引，O(n) 暴力扫描 → O(1) 查询）
+  // 键：base|wear|col；同一键理论上唯一，若存在多条取第一条（与原 find 语义一致）
+  let _variantIdx = null;
+  function buildVariantIndex() {
+    _variantIdx = new Map();
+    ALL_ITEMS.forEach(i => {
+      const key = famKeyOf(i.name) + '|' + wearKeyOf(i.name) + '|' + variantOf(i.name).col;
+      if (!_variantIdx.has(key)) _variantIdx.set(key, i);
+    });
+  }
+  const findVariant = (base, wk, col) => {
+    if (!_variantIdx) buildVariantIndex();
+    return _variantIdx.get(base + '|' + wk + '|' + col) || null;
+  };

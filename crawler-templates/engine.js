@@ -1,5 +1,51 @@
 /* ---------- 以下为运行时引擎（模拟历史波动 + 榜单 + SVG 兜底） ---------- */
 
+// 涨跌业务阈值 —— 全链路唯一配置（v7.0 数据契约）
+// 产品定义（与榜单/分类/测试统一引用，禁止在别处硬编码）：
+//   rising      涨/跌榜门槛：变动 > ±0.15% 即入涨跌榜（否则归入「无变动榜」）
+//   noticeable  明显上涨/下跌：≥ ±3%（changeClass: up1 / down1）
+//   strong      大涨/大跌：≥ ±10%（changeClass: up2 / down2）
+//   win7d       7 日涨跌锚点容差：±2 天内找到 7 天前的真实锚点才算「7 日」，否则标记数据不足
+const CHANGE_THRESHOLDS = {
+  rising: 0.15,
+  noticeable: 3,
+  strong: 10,
+  win7d: 2
+};
+// 供测试与前端统一引用（data.js 先于前端各 js 加载）
+window.__CHANGE_THRESHOLDS = CHANGE_THRESHOLDS;
+// 供契约审计测试直接验证核心业务不变量（tests/contract-audit.js）
+window.__engineCore = { find7dAnchor, changeClassOf, CHANGE_THRESHOLDS };
+
+// 涨跌分类（changePercent 单位：百分点；null = 数据不足）—— 与 CHANGE_THRESHOLDS 单一来源
+function changeClassOf(pct) {
+  if (pct == null || !isFinite(pct)) return 'none';
+  const T = CHANGE_THRESHOLDS;
+  if (pct >= T.strong) return 'up2';
+  if (pct >= T.noticeable) return 'up1';
+  if (pct <= -T.strong) return 'down2';
+  if (pct <= -T.noticeable) return 'down1';
+  return 'flat';
+}
+
+// 7 日涨跌锚点：按时间戳寻找「今天-7 天 ± win7d 天」内的真实历史点。
+// 找不到（如仅剩 15/45 天前锚点）→ 返回 null，调用方标记「数据不足」，
+// 禁止用最老锚点静默冒充 7 日（v7.0 数据契约；此前 priceHistory[length-8] 会退化成 15/45 日）。
+function find7dAnchor(priceHistory) {
+  if (!priceHistory || priceHistory.length === 0) return null;
+  const T = CHANGE_THRESHOLDS;
+  const target = TODAY_ANCHOR.getTime() - 7 * 86400000;
+  let best = null, bestDiff = Infinity;
+  for (const p of priceHistory) {
+    const t = Date.parse(p.date + 'T00:00:00');
+    if (isNaN(t)) continue;
+    const diff = Math.abs(t - target);
+    if (diff < bestDiff) { bestDiff = diff; best = p; }
+  }
+  if (!best || bestDiff > T.win7d * 86400000) return null;
+  return best;
+}
+
 // 带种子的伪随机数（每次打开数据一致）
 function mulberry32(seed) {
   return function () {
@@ -104,22 +150,28 @@ function buildItem(def) {
   }
   const historyReal = realLen >= 8 || (def.hist && def.hist.length >= 2) ? true : false;
 
-  const currentPrice = priceHistory[priceHistory.length - 1].price;
-  // 7 日前价：优先用回填的 7d 窗口中位价；锚点/短序列时防越界
-  const previousPrice = def.chgPrev != null ? def.chgPrev : priceHistory[Math.max(0, priceHistory.length - 8)].price;
-  const changeAmount = Math.round((currentPrice - previousPrice) * 100) / 100;
-  const changePercent = Math.round((changeAmount / previousPrice) * 10000) / 100;
+  const currentPrice = priceHistory.length ? priceHistory[priceHistory.length - 1].price : null;
+  // 7 日前价（v7.0 契约）：
+  //   1) 优先用回填的 7 日成交中位（chgPrev，第三方真实成交口径）；
+  //   2) 否则按时间戳找「今天-7 天 ± 2 天」内的真实锚点；
+  //   3) 都找不到（短历史/仅剩 15/45 天锚点）→ previousPrice=null，涨跌标记「数据不足」，
+  //      绝不把 15/45 日前价格冒充 7 日。
+  const previousPrice = def.chgPrev != null ? def.chgPrev
+    : (priceHistory.length ? (find7dAnchor(priceHistory) || {}).price : null);
+  // 涨跌可得性（v7.0 契约）：
+  //   - 必须存在正基准价（chgPrev 或 7 日真实锚点）；
+  //   - refOnly（第三方参考价占位）且无真实历史（快照/第三方锚点）的条目：
+  //     不得用模拟序列算涨跌（旧语义：不进榜单，UI 标注「快照积累中」）。
+  const prevValid = previousPrice != null && isFinite(previousPrice) && previousPrice > 0 && currentPrice != null;
+  const chgAvail = prevValid && (def.refOnly !== 1 || historyReal);
+  const changeAmount = chgAvail ? Math.round((currentPrice - previousPrice) * 100) / 100 : null;
+  const changePercent = chgAvail ? Math.round((changeAmount / previousPrice) * 10000) / 100 : null;
   const prices = priceHistory.map(p => p.price);
-  const lowestPrice = Math.round(Math.min(...prices) * 100) / 100;
-  const highestPrice = Math.round(Math.max(...prices) * 100) / 100;
+  const lowestPrice = prices.length ? Math.round(Math.min(...prices) * 100) / 100 : null;
+  const highestPrice = prices.length ? Math.round(Math.max(...prices) * 100) / 100 : null;
 
-  // 涨跌分类：大涨/上涨/盘整/下跌/大跌；refOnly 且历史不足时如实标「无数据」
-  const changeClass = (def.refOnly === 1 && !historyReal) ? 'none'
-    : changePercent >= 10 ? 'up2'
-      : changePercent >= 3 ? 'up1'
-        : changePercent <= -10 ? 'down2'
-          : changePercent <= -3 ? 'down1'
-            : 'flat';
+  // 涨跌分类：大涨/上涨/盘整/下跌/大跌；无 7 日锚点或 refOnly 且历史不足时如实标「无数据」
+  const changeClass = changeClassOf(changePercent);
 
   return {
     id: def.id,
@@ -127,6 +179,7 @@ function buildItem(def) {
     image: def.image || (CDN_IMG + def.icon + '/144fx144'),   // 本地 images/*.png 或按 icon 拼 Steam CDN
     icon: def.icon || null,                 // CDN 兜底用哈希（Akamai 备用源）
     currentPrice, previousPrice, changeAmount, changePercent,
+    chgAvail,                             // 7 日涨跌是否可得（previousPrice 有真实 7 日锚点/回填中位）
     lowestPrice, highestPrice, priceHistory,
     listPrice: def.base,                     // 真实挂牌价（爬取时点；refOnly 条目为三方最低参考）——炼金等定价敏感场景用，currentPrice 是图表末点、可能含模拟游走扰动
     historyReal,
@@ -147,9 +200,10 @@ const ALL_ITEMS = RAW.map(buildItem);
 // hot 标记仅表示"最近一次爬取刷新过价格"，不再限制榜单范围
 const byRise = (a, b) => b.changePercent - a.changePercent;
 const byFall = (a, b) => a.changePercent - b.changePercent;
-const RISING = ALL_ITEMS.filter(i => i.changeClass !== 'none' && i.changePercent > 0.15).sort(byRise);
-const FALLING = ALL_ITEMS.filter(i => i.changeClass !== 'none' && i.changePercent <= -0.15).sort(byFall);
-// 无变动榜 = 涨跌榜的精确补集（盘整 ±0.15% 内 + 涨跌积累中条目），按当前价排序——全库饰品的价格目录
+// 榜单门槛统一引用 CHANGE_THRESHOLDS.rising（v7.0 契约；禁止魔法数 0.15 散落）
+const RISING = ALL_ITEMS.filter(i => i.changeClass !== 'none' && i.changePercent > CHANGE_THRESHOLDS.rising).sort(byRise);
+const FALLING = ALL_ITEMS.filter(i => i.changeClass !== 'none' && i.changePercent <= -CHANGE_THRESHOLDS.rising).sort(byFall);
+// 无变动榜 = 涨跌榜的精确补集（盘整 ±rising% 内 + 涨跌积累中条目），按当前价排序——全库饰品的价格目录
 const _riseSet = new Set(RISING), _fallSet = new Set(FALLING);
 const FLAT = ALL_ITEMS.filter(i => !_riseSet.has(i) && !_fallSet.has(i))
   .sort((a, b) => b.currentPrice - a.currentPrice);

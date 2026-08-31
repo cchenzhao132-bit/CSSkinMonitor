@@ -25,7 +25,7 @@
 | **第三方参考价**（详情页） | [Skinport](https://docs.skinport.com/)、[market.csgo.com](https://market.csgo.com/en/api)、Waxpeer 公开 API | 每次运行爬虫时同步（每源 1 次请求），详情页显示与 Steam 的价差 |
 | 物品目录并集 | 三方市场并集（约 3 万条） | 用于覆盖率核算与深度爬取缺口定位 |
 | 价格历史 | `cache/price-history.json` 每日快照 | **运行越久越真实**；不足 8 天的条目回退本地模拟走势（页面已标注） |
-| 7 日涨跌幅 | 由价格历史计算 | 快照 ≥8 天后为真实值，之前为演示模拟 |
+| 7 日涨跌幅 | 由价格历史计算，**按时间戳锚定「今天-7 天 ± 2 天」**（v7.0 契约） | 快照 ≥8 天后为真实值；锚点不足（如仅剩 15/45 天）时如实显示「数据不足」，**绝不静默降级** |
 
 - **多源原则**：Steam 挂牌价是唯一行情口径（本应用的定位）；第三方现货市场价（Skinport/market.csgo/Waxpeer）口径为真实货币现金价，通常低于 Steam 钱包价 20-30%，仅在详情页作为跨平台比价参考，明确标注来源，绝不与 Steam 价混用
 - 汇率：USD → CNY 固定 `7.25`（`--rate` 可调），与国内平台（BUFF/悠悠有品）报价不可直接对比
@@ -59,11 +59,14 @@ python -m PyInstaller --onefile --windowed --name CSSkinMonitor --add-data "app;
 
 ### 测试与 CI
 
-回归测试分三层（数据层断言 + headless Edge 路由渲染 + jsdom 搜索交互）：
+回归测试分四层（数据层断言 + headless Edge 路由渲染 + jsdom 搜索交互 + 数据契约审计）：
 
 ```
 node regression.js              # 全量模式：需本机 app/data.js 全量数据 + Edge
 node regression.js --fixture    # fixture 模式：用 tests/fixture-data.js，无需全量爬取
+npm run test:contract           # 数据契约审计（7 日窗口 / 涨跌阈值 / 历史边界 / 索引等价性）
+npm run test:alchemy            # 炼金离线审计（归一化公式 / EV 口径 / 雷达一致性）
+npm run test:render             # jsdom 渲染级验证（炼金页关键区块）
 ```
 
 - **fixture 数据**：`node build-fixture.js`（需先 `node crawler.js --regen`）从全量数据抽样导出 `tests/fixture-data.js`，覆盖炼金集合输出、中文别名搜索、全部分类、StatTrak/纪念/原版、第三方条目、真实历史等边界。该文件入库，CI / 外部贡献者 clone 后即可跑测试，无需数小时爬取。

@@ -88,7 +88,9 @@ const REGEN = args.includes('--regen');   // 离线重建：不访问网络，�
 const PAGES = getArg('pages', MODE === 'hot' ? 20 : 60);   // 热门层默认 20 页 ≈ 前 200 条
 const PAGE_SIZE = 100;
 const IMG_TOP = getArg('offline-img', 300);   // 价格 Top N 图片本地化
-const RATE_EXCHANGE = getArg('rate', 7.25);   // USD -> CNY 汇率（--rate 可调）
+// 汇率：USD -> CNY 固定参考汇率（默认 7.25，--rate 可调）——注意是「固定换算参考值」，
+// 非实时汇率；第三方参考价卡与 README 均标注此口径，不与国内平台实时汇率直接对比。
+const RATE_EXCHANGE = getArg('rate', 7.25);
 const LIST_DELAY = 3500;                      // listing API 限流间隔 ms
 const HIST_MAX_DAYS = 60;                     // 每日快照保留天数（控制 data.js 体积）
 

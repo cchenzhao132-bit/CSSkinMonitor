@@ -14,14 +14,16 @@
     if (state.cat !== 'all') items = items.filter(i => i.cat === state.cat);
     const sorters = {
       time: (a, b) => FAVS[b.name] - FAVS[a.name],
-      price: (a, b) => b.currentPrice - a.currentPrice,
-      chg: (a, b) => b.changePercent - a.changePercent
+      price: (a, b) => (b.currentPrice || 0) - (a.currentPrice || 0),
+      // v7.0：无 7 日数据的条目排最后（null 不参与 NaN 比较）
+      chg: (a, b) => (b.changePercent == null ? -Infinity : b.changePercent) - (a.changePercent == null ? -Infinity : a.changePercent)
     };
     items.sort(sorters[state.favSort] || sorters.time);
 
-    const totalValue = items.reduce((s, i) => s + i.currentPrice, 0);
-    const chgItems = items.filter(i => !(i.refOnly && !i.historyReal));
-    const totalChg = chgItems.reduce((s, i) => s + i.changeAmount, 0);
+    const totalValue = items.reduce((s, i) => s + (i.currentPrice || 0), 0);
+    // v7.0：仅统计有 7 日涨跌数据的条目（chgAvail），无锚点条目不计入合计涨跌
+    const chgItems = items.filter(i => i.chgAvail);
+    const totalChg = chgItems.reduce((s, i) => s + (i.changeAmount || 0), 0);
 
     const emptyHtml = favCount() === 0
       ? '<div class="no-result"><div class="nr-title">☆ 还没有收藏</div><div class="nr-desc">在榜单、搜索结果或详情页点击 ☆ 图标，即可收藏关注的饰品并在这里跟踪价格与涨跌</div></div>'

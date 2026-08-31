@@ -2,6 +2,41 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。版本号与桌面 exe 发行版对应。
 
+## [7.0.0] - 2026-08-31
+
+### 数据契约重构（基于三份独立代码审查：grok/kimi/qwen，任务书见桌面 gpt.md）
+
+**P0 · 7 日涨跌时间窗口不再静默降级**
+- 新增 `find7dAnchor`：按时间戳寻找「今天-7 天 ± 2 天」内的真实历史锚点，替代旧 `priceHistory[length-8]` 取数
+- 短历史（0/1/3 天）与仅剩 15/45 天锚点的第三方回填条目：`chgAvail=false`，UI 如实显示「数据不足 / 7日锚点未积累到」，**禁止 45 日数据冒充 7 日**
+- 有 `chgPrev`（第三方 7 日成交中位）的条目仍优先使用真实成交口径
+- 引擎产物新增 `chgAvail` 字段，前端榜单行 / 详情页 / 收藏页统计全部按此过滤
+
+**P0 · 涨跌阈值统一为单一配置**
+- 新增 `CHANGE_THRESHOLDS = { rising: 0.15, noticeable: 3, strong: 10, win7d: 2 }`（engine.js），榜单门槛（±0.15%）、涨跌分类（3%/10%）全部引用；前端 CHG_CLASS 描述由 `window.__CHANGE_THRESHOLDS` 派生
+- 删除散落的魔法数（0.15 / 3 / 10），回归测试断言改为引用统一配置
+
+**P0 · 历史边界防护（空/单点/非法价格不再产生 NaN 或崩溃）**
+- 详情页 `lowIdx/highIdx/pctBetween/volatility` 对空数组、单点历史、0 价、null、NaN、Infinity 全部返回 null 或安全值，UI 显示「—」
+- `listPrice`（真实挂牌）/ `currentPrice`（图表末点）语义注释明确，全库断言两者均为有限数
+
+**P0 · 测试体系改为断言业务不变量**
+- 新增 `tests/contract-audit.js`（`npm run test:contract`）：7 日窗口 0/1/3/7/8/15/45 天用例、涨跌临界值 18 组 + 非法输入、历史边界防护、findVariant 索引等价性、全库价格/榜单自洽
+- regression.js 榜单断言从「实现自洽」改为「业务规则」（门槛/分类区间/无锚点不带涨跌数字）
+
+**P1 · 性能与资源生命周期**
+- `findVariant` 建 `(family|wear|col) → item` Map 索引：O(n) 暴力扫描 → O(1) 查询（详情页磨损表渲染不再数十万次字符串比较）
+- 榜单懒加载 IntersectionObserver 改为模块级保存，重建前 disconnect（只生不灭 → 有生有灭）
+- 搜索建议改事件委托，快速打字不再累积 click 监听器（此前每次输入重建 DOM 后 forEach 绑定）
+
+**P2/P3 · 小问题**
+- 空关键词不再插入无意义 `<mark>` 高亮标签
+- 汇率（USD→CNY 固定 7.25）注释与 UI 明确标注「固定参考汇率，非实时」
+- 收藏页排序对无涨跌数据条目防护（null 不参与 NaN 比较）
+
+### 测试
+- `npm run test:contract` 新增；全量回归 61/61、fixture 回归 62/62、炼金审计、渲染级验证、契约审计（全量+fixture）全部通过
+
 ## [6.3.2] - 2026-08-30
 
 ### 修复

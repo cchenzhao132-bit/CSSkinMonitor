@@ -32,7 +32,7 @@ let env = {};
 {
   global.window = {};
   const src = fs.readFileSync(DATA_FILE, 'utf8');
-  env = new Function(src + ';return {RAW,WEARDB,HISTORY,TRADEUP,ALL_ITEMS,RISING,FALLING,FLAT,HOT_COUNT};')();
+  env = new Function(src + ';return {RAW,WEARDB,HISTORY,TRADEUP,ALL_ITEMS,RISING,FALLING,FLAT,HOT_COUNT,CHANGE_THRESHOLDS};')();
 }
 const { RAW, WEARDB, HISTORY, TRADEUP, ALL_ITEMS, RISING, FALLING, FLAT } = env;
 
@@ -50,11 +50,12 @@ ok(TRADEUP && TRADEUP.crates && TRADEUP.crates.length >= T.crates, `炼金集合
 ok(HISTORY && Object.keys(HISTORY.byName).length >= T.hist, `价格快照覆盖 ≥ ${T.hist}（实际 ${Object.keys(HISTORY.byName).length}）`);
 ok(Object.keys(WEARDB).length >= T.wear, `皮肤家族 ≥ ${T.wear}（实际 ${Object.keys(WEARDB).length}）`);
 
-// 无 NaN/null 价格
-const badPrice = RAW.filter(i => !isFinite(i.base) || i.base === null);
-ok(badPrice.length === 0, 'RAW 无 null/NaN 价格', badPrice.slice(0, 3).map(i => i.name).join(','));
-const badLive = ALL_ITEMS.filter(i => !isFinite(i.currentPrice));
-ok(badLive.length === 0, 'ALL_ITEMS 无 null/NaN 现价', badLive.slice(0, 3).map(i => i.name).join(','));
+// 无 NaN/null 价格（v7.0：用 typeof+Number.isFinite 校验，避开 isFinite(null)===true 的陷阱）
+const validPrice = p => typeof p === 'number' && Number.isFinite(p) && p > 0;
+const badPrice = RAW.filter(i => !validPrice(i.base));
+ok(badPrice.length === 0, 'RAW 无 null/NaN/非正价格', badPrice.slice(0, 3).map(i => i.name).join(','));
+const badLive = ALL_ITEMS.filter(i => !validPrice(i.currentPrice));
+ok(badLive.length === 0, 'ALL_ITEMS 无 null/NaN/非正现价', badLive.slice(0, 3).map(i => i.name).join(','));
 
 // 每条都有分类，且键合法
 const CAT_KEYS = ['rifle', 'sniper', 'pistol', 'smg', 'shotgun', 'mg', 'knife', 'glove', 'sticker', 'graffiti', 'music', 'charm', 'patch', 'agent', 'capsule', 'case', 'misc'];
@@ -68,10 +69,29 @@ ok(RISING.length >= T.rising && FALLING.length >= T.falling, `涨跌榜规模 �
   ok(RISING.length + FALLING.length + FLAT.length === ALL_ITEMS.length, '三榜覆盖全库（涨+跌+无变动 = 全库）');
   ok(FLAT.every(i => !RISING.includes(i) && !FALLING.includes(i)), '无变动榜与涨跌榜无重叠（精确补集）');
 
-// 涨跌分类键合法且与涨跌方向自洽
+// 涨跌分类键合法且与涨跌方向自洽（阈值引用引擎统一配置 CHANGE_THRESHOLDS，v7.0 契约）
 const CC = ['up2', 'up1', 'flat', 'down1', 'down2', 'none'];
 ok(ALL_ITEMS.every(i => CC.includes(i.changeClass)), 'changeClass 键合法');
-ok(RISING.every(i => i.changePercent > 0.15) && FALLING.every(i => i.changePercent <= -0.15), '榜单排序方向自洽');
+{
+  const T = env.CHANGE_THRESHOLDS || { rising: 0.15, noticeable: 3, strong: 10 };
+  // 业务不变量：涨价榜 = 有 7 日数据且涨幅 > rising；降价榜 = 有 7 日数据且跌幅 ≤ -rising
+  ok(RISING.every(i => i.chgAvail && i.changePercent > T.rising), `涨价榜门槛 = +${T.rising}%（统一配置）`);
+  ok(FALLING.every(i => i.chgAvail && i.changePercent <= -T.rising), `降价榜门槛 = -${T.rising}%（统一配置）`);
+  // 业务不变量：changeClass 与阈值一致（up2≥strong / up1≥noticeable / down2≤-strong / down1≤-noticeable）
+  ok(ALL_ITEMS.filter(i => i.changeClass === 'up2').every(i => i.changePercent >= T.strong), 'up2(大涨) 全部 ≥ strong 阈值');
+  ok(ALL_ITEMS.filter(i => i.changeClass === 'down2').every(i => i.changePercent <= -T.strong), 'down2(大跌) 全部 ≤ -strong 阈值');
+  ok(ALL_ITEMS.filter(i => i.changeClass === 'up1').every(i => i.changePercent >= T.noticeable && i.changePercent < T.strong), 'up1(上涨) 落在 noticeable~strong 区间');
+  ok(ALL_ITEMS.filter(i => i.changeClass === 'down1').every(i => i.changePercent <= -T.noticeable && i.changePercent > -T.strong), 'down1(下跌) 落在 -strong~-noticeable 区间');
+  ok(ALL_ITEMS.filter(i => i.changeClass === 'flat').every(i => i.chgAvail && Math.abs(i.changePercent) < T.noticeable), 'flat(盘整) 全部 |changePercent| < noticeable');
+  // v7.0 业务不变量：标「7 日涨跌」必须真的有 7 日锚点——chgAvail=false 的条目不得携带 7 日涨跌数字
+  const noAnchorWithChg = ALL_ITEMS.filter(i => !i.chgAvail && (i.changePercent != null || i.changeAmount != null));
+  ok(noAnchorWithChg.length === 0, '无 7 日锚点条目不带涨跌数字（禁止 15/45 日冒充 7 日）', noAnchorWithChg.slice(0, 3).map(i => i.name).join(','));
+  const chgAvailOK = ALL_ITEMS.filter(i => i.chgAvail).every(i => isFinite(i.changePercent) && isFinite(i.changeAmount) && i.previousPrice > 0);
+  ok(chgAvailOK, 'chgAvail=true 条目涨跌数字均为有限正基准');
+  // 价格语义：listPrice（真实挂牌）与 currentPrice（图表末点）都必须是有限数
+  ok(ALL_ITEMS.every(i => isFinite(i.listPrice) && isFinite(i.currentPrice)), 'listPrice / currentPrice 均为有限数');
+  ok(ALL_ITEMS.every(i => !(i.changePercent != null) || (i.previousPrice != null && i.previousPrice > 0)), '有涨跌数字必有正基准价');
+}
 const refOnlyNoData = ALL_ITEMS.filter(i => i.refOnly && !i.historyReal).every(i => i.changeClass === 'none');
 ok(refOnlyNoData, '无历史第三方条目均为「无数据」');
 

@@ -150,19 +150,24 @@
     }
   }
 
+  // 滚动到底自动追加下一批（v7.0：模块级保存 Observer，重建前 disconnect，杜绝只生不灭）
+  let _listObserver = null;
   function setupSentinel() {
+    if (_listObserver) { _listObserver.disconnect(); _listObserver = null; }
     const sentinel = $('#listSentinel');
     if (!sentinel || !('IntersectionObserver' in window)) { appendRows(); return; }
-    const io = new IntersectionObserver(entries => {
+    _listObserver = new IntersectionObserver(entries => {
       if (entries[0].isIntersecting) appendRows();
-      if (state.listShown >= state.listItems.length) io.disconnect();
+      if (state.listShown >= state.listItems.length) { _listObserver.disconnect(); _listObserver = null; }
     }, { rootMargin: '500px' });
-    io.observe(sentinel);
+    _listObserver.observe(sentinel);
   }
 
   function rowHTML(item, idx, kw) {
     const up = item.changePercent > 0;
     const noChg = item.refOnly && !item.historyReal;   // 第三方参考条目：历史快照不足时不显示涨跌
+    const noData7 = !item.chgAvail;                    // v7.0：无 7 日锚点 → 数据不足
+    const noChgView = noChg || noData7;
     const matched = kw && (item.name.toLowerCase().includes(kw) || (item.cn || '').toLowerCase().includes(kw));
     const badge = idx < 3 ? `top${idx + 1}` : '';
     const disp = item.cn || item.name;
@@ -186,11 +191,11 @@
         </div>
         <div class="item-nums">
           <div class="price-block">
-            <div class="price-now">${fmt(item.currentPrice)}</div>
-            <div class="price-prev">${noChg ? '第三方参考' : `7日前 ${fmt(item.previousPrice)}`}</div>
+            <div class="price-now">${item.currentPrice != null ? fmt(item.currentPrice) : '—'}</div>
+            <div class="price-prev">${noChgView ? (noChg ? '第三方参考' : '7日数据不足') : `7日前 ${fmt(item.previousPrice)}`}</div>
           </div>
           <div class="change-block">
-            ${noChg
+            ${noChgView
               ? '<div class="change-percent" style="background:rgba(255,255,255,0.05);color:var(--text-faint)">快照积累中</div>'
               : `<div class="change-amount ${up ? 'up-c' : 'down-c'}">${fmtSigned(item.changeAmount)}</div>
             <div class="change-percent ${up ? 'up-c up-bg' : 'down-c down-bg'}">
@@ -203,6 +208,7 @@
   }
 
   function highlight(name, kw) {
+    if (!kw) return esc(name);   // v7.0：空关键词不插入无意义 <mark>
     const i = name.toLowerCase().indexOf(kw);
     if (i < 0) return esc(name);
     return esc(name.slice(0, i)) + '<mark style="background:rgba(102,192,244,0.35);color:#fff;border-radius:3px;padding:0 2px;">' + esc(name.slice(i, i + kw.length)) + '</mark>' + esc(name.slice(i + kw.length));
@@ -270,15 +276,19 @@
       }).join('');
     }
     searchSuggest.classList.add('show');
-    searchSuggest.querySelectorAll('.suggest-item').forEach(el => {
-      el.addEventListener('click', () => {
+    // v7.0：事件委托绑定一次（此前每次输入重建 DOM 后 forEach 绑 click，快速打字会累积监听器）
+    if (!searchSuggest._delegated) {
+      searchSuggest._delegated = true;
+      searchSuggest.addEventListener('click', e => {
+        const el = e.target.closest('.suggest-item');
+        if (!el) return;
         searchSuggest.classList.remove('show');
         searchInput.value = '';
         state.query = '';
         searchWrap.classList.remove('has-value');
         goDetail(+el.dataset.id);
       });
-    });
+    }
   }
 
   // 回车：跳到第一个建议项；无建议时渲染无结果提示

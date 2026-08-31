@@ -68,7 +68,7 @@
       <section class="chart-card ref-card">
         <div class="chart-head">
           <div class="chart-title"><span class="dot dot-ref"></span>第三方市场参考
-            <span class="wear-hint">第三方现货市场最低价（USD→CNY），与 Steam 挂牌价口径不同，仅供跨平台比价</span>
+            <span class="wear-hint">第三方现货市场最低价（USD→CNY 固定参考汇率 7.25 换算，非实时）· 与 Steam 挂牌价口径不同，仅供跨平台比价</span>
           </div>
         </div>
         <div class="ref-grid">
@@ -90,11 +90,15 @@
     const item = ALL_ITEMS.find(i => i.id === state.route.id);
     if (!item) { goList('up'); return; }
     const up = item.changePercent > 0;
-    const noChg = item.refOnly && !item.historyReal;
-    const his = item.priceHistory;
+    const noChg = item.refOnly && !item.historyReal;   // 第三方参考条目：历史快照不足时不显示涨跌
+    const noData7 = !item.chgAvail;                    // v7.0：无 7 日锚点（短历史/仅剩 15/45 日锚点）→ 数据不足
+    const his = item.priceHistory || [];
     const d30 = pctBetween(his, 30);
     const d90 = pctBetween(his, 90);
     const vola = volatility(his);
+    const lo = lowIdx(his), hi = highIdx(his);
+    const fmtPct = v => v == null ? '—' : (v > 0 ? '+' : '') + v.toFixed(2) + '%';
+    const fmtDate = v => v == null ? '暂无' : v.date;
     const parts = splitName(item.name);
 
     const backLabel = { up: '涨价', down: '降价', flat: '无变动' }[state.route.tab] || '涨价';
@@ -119,11 +123,11 @@
             ${item.changeClass !== 'none' ? `<span class="tag chg-tag chg-tag-${item.changeClass}">7日${CHG_NAME[item.changeClass]}</span>` : ''}
           </div>
           <div class="detail-quick">
-            ${item.refOnly && !item.historyReal
-              ? '<span style="color:var(--text-faint)">涨跌数据快照积累中（每日自动刷新）</span>'
+            ${noChg || noData7
+              ? '<span style="color:var(--text-faint)">7日涨跌：数据不足（7 日锚点未积累到）</span>'
               : `7日 <span class="${up ? 'up-c' : 'down-c'}">${up ? '+' : ''}${item.changePercent.toFixed(2)}%</span>
-            · 30日 <span class="${d30 > 0 ? 'up-c' : 'down-c'}">${d30 > 0 ? '+' : ''}${d30.toFixed(2)}%</span>
-            · 90日 <span class="${d90 > 0 ? 'up-c' : 'down-c'}">${d90 > 0 ? '+' : ''}${d90.toFixed(2)}%</span>`}
+            · 30日 <span class="${(d30 || 0) > 0 ? 'up-c' : 'down-c'}">${fmtPct(d30)}</span>
+            · 90日 <span class="${(d90 || 0) > 0 ? 'up-c' : 'down-c'}">${fmtPct(d90)}</span>`}
           </div>
         </div>
       </div>
@@ -132,20 +136,20 @@
         <div class="pcard p-low">
           <span class="pc-emoji">📉</span>
           <div class="pc-label">历史最低价</div>
-          <div class="pc-value">${fmt(item.lowestPrice)}</div>
-          <div class="pc-sub">${his[lowIdx(his)].date} 触及</div>
+          <div class="pc-value">${item.lowestPrice != null ? fmt(item.lowestPrice) : '—'}</div>
+          <div class="pc-sub">${fmtDate(his[lo])} 触及</div>
         </div>
         <div class="pcard p-main">
           <span class="pc-emoji">⚡</span>
           <div class="pc-label">${item.refOnly ? '第三方参考价（Steam 未采集）' : '当前价格'}</div>
-          <div class="pc-value">${fmt(item.currentPrice)}</div>
-          <div class="pc-sub">${item.refOnly ? '来自第三方现货市场 · 深度爬取后升级为 Steam 挂牌价' : `7日前 ${fmt(item.previousPrice)} · <span class="${up ? 'up-c' : 'down-c'}">${fmtSign(item.changeAmount)}</span>`}</div>
+          <div class="pc-value">${item.currentPrice != null ? fmt(item.currentPrice) : '—'}</div>
+          <div class="pc-sub">${item.refOnly ? '来自第三方现货市场 · 深度爬取后升级为 Steam 挂牌价' : (noData7 ? '7 日涨跌数据不足' : `7日前 ${fmt(item.previousPrice)} · <span class="${up ? 'up-c' : 'down-c'}">${fmtSign(item.changeAmount)}</span>`)}</div>
         </div>
         <div class="pcard p-high">
           <span class="pc-emoji">📈</span>
           <div class="pc-label">历史最高价</div>
-          <div class="pc-value">${fmt(item.highestPrice)}</div>
-          <div class="pc-sub">${his[highIdx(his)].date} 触及</div>
+          <div class="pc-value">${item.highestPrice != null ? fmt(item.highestPrice) : '—'}</div>
+          <div class="pc-sub">${fmtDate(his[hi])} 触及</div>
         </div>
       </div>
 
@@ -165,10 +169,10 @@
       </div>
 
       <div class="detail-stats">
-        <div class="dstat"><div class="ds-label">7日涨跌幅</div><div class="ds-value ${up ? 'up-c' : 'down-c'}">${noChg ? '—' : (up ? '+' : '') + item.changePercent.toFixed(2) + '%'}</div></div>
-        <div class="dstat"><div class="ds-label">30日涨跌幅</div><div class="ds-value ${d30 > 0 ? 'up-c' : 'down-c'}">${noChg ? '—' : (d30 > 0 ? '+' : '') + d30.toFixed(2) + '%'}</div></div>
+        <div class="dstat"><div class="ds-label">7日涨跌幅</div><div class="ds-value ${up ? 'up-c' : 'down-c'}">${noChg || noData7 ? '—' : (up ? '+' : '') + item.changePercent.toFixed(2) + '%'}</div></div>
+        <div class="dstat"><div class="ds-label">30日涨跌幅</div><div class="ds-value ${(d30 || 0) > 0 ? 'up-c' : 'down-c'}">${noChg ? '—' : fmtPct(d30)}</div></div>
         <div class="dstat"><div class="ds-label">7日分类</div><div class="ds-value" style="font-size:16px">${item.changeClass !== 'none' ? CHG_NAME[item.changeClass] : '—'}</div></div>
-        <div class="dstat"><div class="ds-label">90日波动率</div><div class="ds-value">${noChg ? '—' : vola.toFixed(2) + '%'}</div></div>
+        <div class="dstat"><div class="ds-label">90日波动率</div><div class="ds-value">${noChg ? '—' : vola == null ? '—' : vola.toFixed(2) + '%'}</div></div>
       </div>
       ${refCardHTML(item)}`;
 
@@ -203,17 +207,27 @@
     renderChart(item);
   }
 
-  const lowIdx = his => his.reduce((m, p, i) => (p.price < his[m].price ? i : m), 0);
-  const highIdx = his => his.reduce((m, p, i) => (p.price > his[m].price ? i : m), 0);
+  // ---------- 历史数据边界防护（v7.0：空/单点/非法价格不得产生 NaN 或崩溃） ----------
+  // 空或单点历史：lowIdx/highIdx 返回 null，pctBetween/volatility 返回 null，UI 显示「— / 数据不足」
+  const lowIdx = his => (his && his.length) ? his.reduce((m, p, i) => (p.price < his[m].price ? i : m), 0) : null;
+  const highIdx = his => (his && his.length) ? his.reduce((m, p, i) => (p.price > his[m].price ? i : m), 0) : null;
   const pctBetween = (his, days) => {
+    if (!his || his.length < 2) return null;
     const n = Math.min(days, his.length);
     const a = his[his.length - n].price, b = his[his.length - 1].price;
+    if (!isFinite(a) || !isFinite(b) || a <= 0) return null;
     return (b - a) / a * 100;
   };
   const volatility = his => {
-    const rets = his.slice(1).map((p, i) => Math.log(p.price / his[i].price));
+    if (!his || his.length < 2) return null;
+    const rets = his.slice(1).map((p, i) => {
+      const r = Math.log(p.price / his[i].price);
+      return isFinite(r) ? r : null;
+    }).filter(v => v != null);
+    if (!rets.length) return null;
     const mean = rets.reduce((s, r) => s + r, 0) / rets.length;
-    return Math.sqrt(rets.reduce((s, r) => s + (r - mean) ** 2, 0) / rets.length) * Math.sqrt(365) * 100;
+    const v = Math.sqrt(rets.reduce((s, r) => s + (r - mean) ** 2, 0) / rets.length) * Math.sqrt(365) * 100;
+    return isFinite(v) ? v : null;
   };
 
   // ---------- ECharts 历史走势 ----------
